@@ -1,6 +1,6 @@
 # 05: The MPC wrapper builds from the same core and passes host_sim
 
-Status: ready (everything passes; only the manual MPC check remains)
+Status: done (manual MPC check skipped by the user on 2026-11-27; not yet run on hardware)
 Spec: [foundation](../../foundation.md)
 Blocked by: 02
 

@@ -1,6 +1,6 @@
 # 04: The JUCE wrapper has a WebView UI whose tilt control automates the parameter
 
-Status: ready (built and validated; only the manual DAW check below remains)
+Status: done (manual DAW check passed 2026-11-27: Bitwig CLAP and VST3, Logic AU)
 Spec: [foundation](../../foundation.md)
 Blocked by: 03
 
