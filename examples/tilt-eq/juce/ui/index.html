@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+  Tilt EQ WebView UI. Plain HTML, CSS and JS: no build step, no network.
+  The plugin serves this file and JUCE's own webview-interop library (as
+  ./juce/index.js) from its resource provider. The slider talks to the tilt
+  parameter through the WebSliderRelay named "tilt".
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tilt EQ</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #1d1f21; color: #e6e6e6;
+               font: 14px -apple-system, "Segoe UI", sans-serif; user-select: none; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+  input[type=range] { width: 80%; }
+  output { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<label for="tilt">Tilt</label>
+<input id="tilt" type="range" min="0" max="1" step="any" value="0.5">
+<output id="readout" for="tilt"></output>
+<script type="module">
+  import * as Juce from "./juce/index.js";
+
+  const slider = document.getElementById("tilt");
+  const readout = document.getElementById("readout");
+  const tilt = Juce.getSliderState("tilt");
+
+  // Each user edit is one host gesture: it starts with the first input event and
+  // ends on "change" (mouse release or key press), so the host records automation.
+  let inGesture = false;
+  const endGesture = () => {
+    if (!inGesture) return;
+    inGesture = false;
+    tilt.sliderDragEnded();
+  };
+
+  slider.addEventListener("input", () => {
+    if (!inGesture) {
+      inGesture = true;
+      tilt.sliderDragStarted();
+    }
+    tilt.setNormalisedValue(Number(slider.value));
+  });
+  slider.addEventListener("change", endGesture);
+  window.addEventListener("pointerup", endGesture);
+  window.addEventListener("blur", endGesture);
+
+  // Host automation, preset loads and our own edits all come back through here.
+  const show = () => {
+    if (!inGesture) slider.value = tilt.getNormalisedValue();
+    readout.textContent = `${tilt.getScaledValue().toFixed(2)} ${tilt.properties.label}`;
+  };
+  tilt.valueChangedEvent.addListener(show);
+  tilt.propertiesChangedEvent.addListener(show);
+</script>
+</body>
+</html>
