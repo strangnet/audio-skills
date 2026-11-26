@@ -1,0 +1,18 @@
+[project]
+name = "strangnet-audio-skills-tooling"
+version = "0.0.0"
+description = "Repo tooling and checker tests for strangnet-audio-skills (not a published package)."
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

@@ -228,7 +228,7 @@ Work type: mixed, so it's split three ways:
 
 Seams:
 
-- **Checker command line → Python `unittest` in CI.** Small fixture source files cover every checker scenario above, one test per scenario. That includes inline `processBlock`, comment and string stripping, the helper `process` method, marked core functions, verbose output and the warning-only exit code. No doubles: the checker reads real files from a temporary folder.
+- **Checker command line → pytest in CI** (a test-only dependency managed with uv; the checkers themselves stay standard-library only). Small fixture source files cover every checker scenario above, one test per scenario. That includes inline `processBlock`, comment and string stripping, the helper `process` method, marked core functions, verbose output and the warning-only exit code. No doubles: the checker reads real files from a temporary folder.
 - **`claude plugin eval` cases → the LLM grader.** Run locally before a release; not part of every CI run. One case per scenario:
   - `audio-portable-core`:
     - fires on the share-DSP prompt, with graders for each advice item

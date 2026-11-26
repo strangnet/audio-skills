@@ -1,0 +1,61 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tooling and checker tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Run pytest
+        run: uv run pytest
+
+  references-in-sync:
+    name: Shared references in sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check vendored references match references/
+        run: scripts/sync-references.sh --check
+
+  versions-in-sync:
+    name: Manifest versions in sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check every plugin manifest declares the same version
+        run: python3 scripts/check_versions.py .
+
+  skills-self-contained:
+    name: Skills self-contained
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no skill links outside its own folder
+        run: python3 scripts/check_self_contained.py .
+
+  plugin-valid:
+    name: Plugin manifests valid
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Validate plugin
+        run: claude plugin validate .

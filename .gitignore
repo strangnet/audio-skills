@@ -1,0 +1,10 @@
+.DS_Store
+.env
+.env.*
+*.log
+.venv/
+__pycache__/
+.pytest_cache/
+evals/results/
+evals/plugin/results/
+build/
