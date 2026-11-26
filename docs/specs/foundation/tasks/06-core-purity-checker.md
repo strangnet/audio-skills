@@ -1,6 +1,6 @@
 # 06: The core-purity checker proves a core is pure, and the script runs it on the example
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 02
 
