@@ -1,6 +1,6 @@
 # 03: The JUCE wrapper ships VST3, AU and CLAP and passes every validator
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 02
 

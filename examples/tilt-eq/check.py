@@ -14,6 +14,7 @@ otherwise pass (0).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,10 @@ from pathlib import Path
 from typing import Callable
 
 HERE = Path(__file__).resolve().parent
+REPO = HERE.parent.parent
+BUILD = REPO / "build" / "tilt-eq"
+PURITY_CHECKER = REPO / "skills" / "audio-portable-core" / "scripts" / "check_core_purity.py"
+REALTIME_CHECKER = REPO / "skills" / "audio-dsp" / "scripts" / "check_realtime.py"
 
 
 @dataclass
@@ -94,6 +99,23 @@ def run_checks(checks: list[Check], find_tool: Callable[[str], bool]) -> Report:
 CXX = Tool("c++", hint="the Xcode Command Line Tools: xcode-select --install")
 
 
+def core_purity() -> tuple[bool, str]:
+    run = subprocess.run(
+        [sys.executable, str(PURITY_CHECKER), str(HERE / "core")], capture_output=True, text=True
+    )
+    return run.returncode == 0, (run.stdout + run.stderr).strip()
+
+
+def realtime_safety() -> tuple[bool, str]:
+    """The core and every wrapper folder that exists pass the real-time checker."""
+    folders = [HERE / name for name in ("core", "juce", "mpc") if (HERE / name).is_dir()]
+    run = subprocess.run(
+        [sys.executable, str(REALTIME_CHECKER), *map(str, folders)],
+        capture_output=True, text=True,
+    )
+    return run.returncode == 0, (run.stdout + run.stderr).strip()
+
+
 def core_behaviour_test() -> tuple[bool, str]:
     with tempfile.TemporaryDirectory() as tmp:
         binary = Path(tmp) / "core_test"
@@ -108,13 +130,100 @@ def core_behaviour_test() -> tuple[bool, str]:
         return run.returncode == 0, run.stdout.strip()
 
 
+CMAKE = Tool("cmake", hint="Homebrew: brew install cmake")
+NINJA = Tool("ninja", hint="Homebrew: brew install ninja")
+JUCE = Tool("JUCE", hint="a JUCE 9.0.6 checkout, with JUCE_DIR set to its path")
+PLUGINVAL = Tool("pluginval", hint="https://github.com/Tracktion/pluginval/releases")
+CLAP_VALIDATOR = Tool("clap-validator", hint="https://github.com/free-audio/clap-validator/releases")
+AUVAL = Tool("auval", hint="macOS (it ships with the system)")
+
+JUCE_BUILD = BUILD / "juce"
+ARTEFACTS = JUCE_BUILD / "TiltEq_artefacts" / "Release"
+PRODUCT = "Tilt EQ"
+# The AU's type, subtype and manufacturer codes, as set in the JUCE wrapper's CMakeLists.txt.
+AU_CODES = ["aufx", "Tilt", "Stng"]
+
+
+def run_tool(command: list[str]) -> tuple[bool, str]:
+    run = subprocess.run(command, capture_output=True, text=True)
+    output = (run.stdout + run.stderr).strip()
+    return run.returncode == 0, output if run.returncode != 0 else ""
+
+
+def juce_build() -> tuple[bool, str]:
+    ok, output = run_tool([
+        "cmake", "-S", str(HERE / "juce"), "-B", str(JUCE_BUILD), "-G", "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release", f"-DJUCE_DIR={os.environ['JUCE_DIR']}",
+    ])
+    if not ok:
+        return False, "configure failed:\n" + output[-3000:]
+    ok, output = run_tool(["cmake", "--build", str(JUCE_BUILD), "--config", "Release"])
+    return ok, "" if ok else "build failed:\n" + output[-3000:]
+
+
+COMPONENTS = Path.home() / "Library" / "Audio" / "Plug-Ins" / "Components"
+INSTALLED_AU = COMPONENTS / f"{PRODUCT}.component"
+
+
+def pluginval(plugin: Path) -> Callable[[], tuple[bool, str]]:
+    def check() -> tuple[bool, str]:
+        ok, output = run_tool(
+            ["pluginval", "--strictness-level", "10", "--validate-in-process", "--validate", str(plugin)]
+        )
+        return ok, output[-3000:]
+    return check
+
+
+def clap_validator() -> tuple[bool, str]:
+    ok, output = run_tool(["clap-validator", "validate", str(ARTEFACTS / "CLAP" / f"{PRODUCT}.clap")])
+    return ok, output[-3000:]
+
+
+def install_au() -> tuple[bool, str]:
+    """Copy the AU into the user's Components folder so macOS registers it.
+
+    AU validators only see registered components. This is the one place the
+    script writes outside the repo; it replaces only this plugin's component.
+    """
+    COMPONENTS.mkdir(parents=True, exist_ok=True)
+    if INSTALLED_AU.exists():
+        shutil.rmtree(INSTALLED_AU)
+    shutil.copytree(ARTEFACTS / "AU" / f"{PRODUCT}.component", INSTALLED_AU)
+    # Make the AU registrar rescan; it restarts on demand.
+    subprocess.run(["killall", "-9", "AudioComponentRegistrar"], capture_output=True)
+    return True, ""
+
+
+def auval() -> tuple[bool, str]:
+    ok, output = run_tool(["auval", "-v", *AU_CODES])
+    return ok, output[-3000:]
+
+
 CHECKS = [
+    Check("core purity", run=core_purity),
+    Check("real-time safety", run=realtime_safety),
     Check("core behaviour test", run=core_behaviour_test, tools=[CXX]),
+    Check("JUCE build (VST3, AU, CLAP)", run=juce_build, tools=[CMAKE, NINJA, JUCE]),
+    Check("pluginval VST3", run=pluginval(ARTEFACTS / "VST3" / f"{PRODUCT}.vst3"),
+          tools=[PLUGINVAL], depends_on=["JUCE build (VST3, AU, CLAP)"]),
+    Check("clap-validator", run=clap_validator, tools=[CLAP_VALIDATOR],
+          depends_on=["JUCE build (VST3, AU, CLAP)"]),
+    Check("install AU for validation", run=install_au, depends_on=["JUCE build (VST3, AU, CLAP)"]),
+    Check("pluginval AU", run=pluginval(INSTALLED_AU), tools=[PLUGINVAL],
+          depends_on=["install AU for validation"]),
+    Check("auval", run=auval, tools=[AUVAL], depends_on=["install AU for validation"]),
 ]
 
 
+def find_tool(name: str) -> bool:
+    if name == "JUCE":
+        juce_dir = os.environ.get("JUCE_DIR")
+        return bool(juce_dir) and (Path(juce_dir) / "CMakeLists.txt").is_file()
+    return shutil.which(name) is not None
+
+
 def main() -> int:
-    report = run_checks(CHECKS, find_tool=lambda name: shutil.which(name) is not None)
+    report = run_checks(CHECKS, find_tool=find_tool)
     for line in report.lines:
         print(line)
     print(f"\n{report.outcome.upper()}")
