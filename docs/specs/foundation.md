@@ -101,7 +101,9 @@ The example's JUCE wrapper and MPC wrapper are written directly in this version,
 - Given a core header that includes a non-standard third-party header, when it runs, then it reports it and exits with failure.
 - Given a core folder with a `.cpp` file, when it runs, then it reports that the core must be header-only and exits with failure.
 - Given `juce::` appears only inside a comment or a string literal, when it runs, then it doesn't report it.
-- Given a path that doesn't exist, or one with no headers, when it runs, then it prints usage and exits with the usage-error code, distinct from the failure code.
+- Given a core header that includes a deprecated C header such as `<math.h>`, when it runs, then it reports a `warning` naming the replacement (`<cmath>`), and warnings alone exit with success.
+- Given a core folder that holds only source files, when it runs, then it reports each one as a header-only error rather than a usage error.
+- Given a path that doesn't exist, or one with no headers or source files, when it runs, then it prints usage and exits with the usage-error code, distinct from the failure code.
 
 ### As a developer or an agent, I want to check that real-time code is safe, so that common glitch causes are caught before they reach a host
 
@@ -121,7 +123,7 @@ The example's JUCE wrapper and MPC wrapper are written directly in this version,
 - Given a flagged line that carries the opt-out marker with a reason, when it runs, then it doesn't report that line, and verbose mode lists it with its reason.
 - Given an opt-out marker with no reason, when it runs, then the marker itself is reported as an error.
 - Given a source file with no real-time body, when it runs, then it says so and exits with success.
-- Given a bad path, when it runs, then it prints usage and exits with the usage-error code.
+- Given a bad path, or a folder with no source files, when it runs, then it prints usage and exits with the usage-error code.
 
 ### As the package author, I want a tilt-EQ example built end to end, so that M1–M4 are proven on real toolchains
 
@@ -171,7 +173,7 @@ The example's JUCE wrapper and MPC wrapper are written directly in this version,
 - **Parameter spec format** (taught by `audio-parameters`, adapted from the Plugin Freedom System's parameter-spec template): a table with one row per parameter, in fixed order. Columns:
   - stable id
   - display name
-  - MPC label, 8 characters or fewer
+  - MPC label, 8 characters or fewer (the Q-Link and Knob FX label; the parameter name itself may be longer)
   - type: float, choice or bool
   - range
   - default
@@ -181,29 +183,30 @@ The example's JUCE wrapper and MPC wrapper are written directly in this version,
   - smoothing time
   - notes
 
-  The row order is the parameter order on both targets, and row 0 must be harmless.
+  The row order is the parameter order on both targets, and row 0 must be harmless. Presets are keyed by id; where a target matches by index (MPC built-in programs, the Knob FX mapping), those lists are generated from the id-keyed presets in row order, and rows are never reordered.
 - **Shared checker interface:**
   - Python 3, standard library only, reading source code only.
   - The checkers live in the skill that owns them: the core-purity checker in `audio-portable-core`, the real-time checker in `audio-dsp`.
-  - They take one or more file or folder paths.
+  - They take one or more file or folder paths. Headers are `.h` and `.hpp`; sources are `.cpp`, `.cc` and `.cxx`.
   - Output lines are `file:line: severity: rule: message`, where severity is `error` or `warning`.
-  - A `--verbose` option also lists suppressed findings with their reasons.
-  - Exit codes: 0 means no errors (warnings allowed), 1 means at least one error, and 2 means a usage error.
+  - Checkers that have opt-out markers also take `--verbose`, which lists suppressed findings with their reasons. The core-purity checker has no opt-outs and no `--verbose`.
+  - Exit codes: 0 means no errors (warnings allowed), 1 means at least one error, and 2 means a usage error. A path that doesn't exist, or paths that contain no files the checker reads, is a usage error.
 - **Real-time checker:**
   - It strips comments and string literals before matching.
   - It finds real-time bodies by signature and by marker, scanning each body by matching braces:
     - any function named `processBlock`
     - any function named `process` that takes a `ProcessContext` (the SDK's audio callback)
     - any function that carries the real-time marker comment on the line before it
-  - It uses the rule set listed in Behaviour. The Plugin Freedom System's real-time hook is the credited starting point; the rule list in this spec is what counts.
+  - It uses the rule set listed in Behaviour. The Plugin Freedom System's real-time hook is the credited starting point; the rule list in this spec is what counts. Rule names are `allocation`, `lock`, `io` and `logging`. Allocation also covers `calloc` and `realloc`; locks cover every standard mutex and lock type. File or network I/O means `fopen`, `fread`, `fwrite`, `fclose`, `fstream`/`ifstream`/`ofstream`, JUCE's `File`, `FileInputStream`, `FileOutputStream` and `URL`, and sockets (`socket`, `StreamingSocket`, `DatagramSocket`).
   - It doesn't follow calls. Real-time code reached only through unmarked helpers isn't scanned, a known limit that `audio-dsp` states.
 - **Opt-out marker:** a trailing comment with a fixed tag and a required reason suppresses one finding on that line. A tag with no reason is itself an error.
 - **Core-purity checker:**
   - It strips comments and string literals.
   - It allows C++17 standard headers, plus relative includes that resolve inside the core folder.
-  - It reports any other include.
+  - It reports deprecated C headers (`<math.h>` and the like) as a `warning` that names the `<cmath>`-style replacement.
+  - It reports any other include as an error.
   - It reports any `juce::` or `mpc::` name and any `JUCE_` macro, whatever the includes.
-  - It reports any `.cpp` file in the core.
+  - It reports any source file in the core as a header-only error, including in a core folder that has no headers at all.
 - **Example layout:** one example plugin, a tilt EQ, as an effect, with a core, a JUCE wrapper and an MPC wrapper, each in its own folder under the repo's examples area.
   - **The core** smooths the tilt over 20 ms with a one-pole smoother and exposes the smoothed value for the behaviour test. Its `process` function carries the real-time marker.
   - **The core's behaviour test** is a small standalone C++17 program that uses only the standard library, built with the system compiler and run by the check script.
