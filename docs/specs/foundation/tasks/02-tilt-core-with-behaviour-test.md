@@ -1,6 +1,6 @@
 # 02: The tilt-EQ core is proven by its behaviour test, run by the example check script
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 01
 

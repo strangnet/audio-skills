@@ -10,6 +10,8 @@ repo and lists this plugin without a version, so it isn't checked here.
     scripts/check_versions.py <repo-root>    exit 1 if any manifest differs (for CI)
 """
 
+from __future__ import annotations
+
 import json
 import re
 import sys

@@ -9,6 +9,8 @@ anchors are ignored, as are links inside code fences and inline code.
     scripts/check_self_contained.py <repo-root>    exit 1 on any bad link (for CI)
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from collections.abc import Iterator
