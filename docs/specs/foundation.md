@@ -109,10 +109,10 @@ The example's JUCE wrapper and MPC wrapper are written directly in this version,
 
 - Given a JUCE wrapper source whose `processBlock` body is clean, when the real-time checker runs, then it reports no findings and exits with success.
 - Given a real-time body that contains any of the following, when it runs, then each one is reported with `file:line`, severity `error` and the rule it breaks, and it exits with failure:
-  - allocation: `new`, `delete`, `malloc`, `free`, or growing a standard container (`push_back`, `emplace_back`, `resize`, `reserve`, `insert`)
+  - allocation: `new`, `delete`, `malloc`, `free`, growing a standard container (`push_back`, `emplace_back`, `resize`, `reserve`, `insert`), or declaring a local standard container variable (`std::vector`, `std::string`, `std::deque`, `std::list`, `std::map`, `std::set`, `std::unordered_map`, `std::unordered_set`), such as `std::vector<float> gains(numFrames);`
   - a lock: `mutex`, `lock_guard`, `unique_lock`, `scoped_lock`
   - file or network I/O
-  - logging or console output: `cout`, `cerr`, `printf`, `fprintf`, `DBG`, `Logger`
+  - logging or console output: `cout`, `cerr`, `printf`, `fprintf`, `DBG`, `Logger`, and the MPC SDK's `mpc::log`
 - Given an MPC wrapper's `process(ProcessContext&)` body that breaks a rule, when it runs, then it reports it in the same way.
 - Given a core function that carries the real-time marker and breaks a rule, when it runs on the core, then it reports it in the same way.
 - Given a JUCE `processBlock` with no denormal protection, when it runs, then it reports a finding with severity `warning`. Warnings alone exit with success.
@@ -189,17 +189,17 @@ The example's JUCE wrapper and MPC wrapper are written directly in this version,
   - The checkers live in the skill that owns them: the core-purity checker in `audio-portable-core`, the real-time checker in `audio-dsp`.
   - They take one or more file or folder paths. Headers are `.h` and `.hpp`; sources are `.cpp`, `.cc` and `.cxx`.
   - Output lines are `file:line: severity: rule: message`, where severity is `error` or `warning`.
-  - Checkers that have opt-out markers also take `--verbose`, which lists suppressed findings with their reasons. The core-purity checker has no opt-outs and no `--verbose`.
+  - Checkers that have opt-out markers also take `--verbose`, which lists suppressed findings with their reasons as `file:line: suppressed: rule: message (reason: ...)`. `suppressed` takes the severity's place, so these lines are never read as errors or warnings. The core-purity checker has no opt-outs and no `--verbose`.
   - Exit codes: 0 means no errors (warnings allowed), 1 means at least one error, and 2 means a usage error. A path that doesn't exist, or paths that contain no files the checker reads, is a usage error.
 - **Real-time checker:**
   - It strips comments and string literals before matching.
   - It finds real-time bodies by signature and by marker, scanning each body by matching braces:
     - any function named `processBlock`
     - any function named `process` that takes a `ProcessContext` (the SDK's audio callback)
-    - any function that carries the real-time marker comment on the line before it
+    - any function that carries the real-time marker, a `// realtime` comment alone on its line, before it. Template or return-type lines may sit between the marker and the function's name; a `;`, `{` or `}` between them cancels the marker.
   - It uses the rule set listed in Behaviour. The Plugin Freedom System's real-time hook is the credited starting point; the rule list in this spec is what counts. Rule names are `allocation`, `lock`, `io` and `logging`. Allocation also covers `calloc` and `realloc`; locks cover every standard mutex and lock type. File or network I/O means `fopen`, `fread`, `fwrite`, `fclose`, `fstream`/`ifstream`/`ofstream`, JUCE's `File`, `FileInputStream`, `FileOutputStream` and `URL`, and sockets (`socket`, `StreamingSocket`, `DatagramSocket`).
   - It doesn't follow calls. Real-time code reached only through unmarked helpers isn't scanned, a known limit that `audio-dsp` states.
-- **Opt-out marker:** a trailing comment with a fixed tag and a required reason suppresses one finding on that line. A tag with no reason is itself an error.
+- **Opt-out marker:** a trailing `// realtime-ok: <reason>` comment suppresses every finding on that line. The reason is required: a tag with no reason suppresses nothing and is itself an error.
 - **Core-purity checker:**
   - It strips comments and string literals.
   - It allows C++17 standard headers, plus relative includes that resolve inside the core folder.
