@@ -41,19 +41,29 @@ juce_add_plugin(TiltEq
     NEEDS_MIDI_OUTPUT FALSE
     AU_MAIN_TYPE kAudioUnitType_Effect
     VST3_CATEGORIES Fx EQ
-    NEEDS_WEB_BROWSER FALSE
+    NEEDS_WEB_BROWSER TRUE
     NEEDS_CURL FALSE)
 
-target_sources(TiltEq PRIVATE Source/PluginProcessor.cpp)
+target_sources(TiltEq PRIVATE Source/PluginProcessor.cpp Source/PluginEditor.cpp)
+
+# The WebView UI is embedded in the binary and served by a resource provider, so the
+# plugin needs no files on disk and no network. JUCE's webview-interop library comes
+# from the JUCE checkout itself, so its version always matches the C++ side.
+juce_add_binary_data(TiltEqUi
+    NAMESPACE TiltEqUi
+    HEADER_NAME TiltEqUi.h
+    SOURCES
+        ui/index.html
+        "${JUCE_DIR}/modules/juce_gui_extra/native/typescript/webview-interop/dist/index.js")
 
 target_compile_definitions(TiltEq
     PUBLIC
-        JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0)
 
 target_link_libraries(TiltEq
     PRIVATE
+        TiltEqUi
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags

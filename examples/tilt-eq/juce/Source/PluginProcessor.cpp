@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
 
+#include "PluginEditor.h"
+
 namespace {
 
 // Stable parameter id: never rename or reuse it once released.
@@ -40,7 +42,7 @@ void TiltEqProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 }
 
 juce::AudioProcessorEditor* TiltEqProcessor::createEditor() {
-    return new juce::GenericAudioProcessorEditor(*this);
+    return new TiltEqEditor(*this, *state_.getParameter(kTiltId.getParamID()));
 }
 
 void TiltEqProcessor::getStateInformation(juce::MemoryBlock& destData) {
