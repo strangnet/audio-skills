@@ -16,6 +16,7 @@ public:
 
     float smoothedTilt() const { return smoothedDb_; }
 
+    // realtime
     void process(float* const* channels, int numChannels, int numFrames) {
         for (int i = 0; i < numFrames; ++i) {
             smoothedDb_ = tiltDb_ + smoothCoeff_ * (smoothedDb_ - tiltDb_);
@@ -25,6 +26,9 @@ public:
                 const float x = channels[ch][i];
                 float& low = lowState_[ch];
                 low = (1.0f - coeff_) * x + coeff_ * low;
+                // Flush the decaying state to zero before it reaches the denormal
+                // range, where some CPUs (the MPC's ARM chips among them) slow down.
+                if (std::fabs(low) < kDenormalFloor) low = 0.0f;
                 channels[ch][i] = low * lowGain + (x - low) * highGain;
             }
         }
@@ -35,6 +39,7 @@ private:
     static constexpr double kPivotHz = 1000.0;
     static constexpr double kSmoothingSeconds = 0.020;
     static constexpr int kMaxChannels = 2;
+    static constexpr float kDenormalFloor = 1e-15f;  // about -300 dB: inaudible
 
     float coeff_ = 0.0f;
     float smoothCoeff_ = 0.0f;

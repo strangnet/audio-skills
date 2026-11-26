@@ -157,6 +157,31 @@ void smoothed_tilt_never_moves_more_than_1_percent_per_sample() {
     check(largestStep <= 0.01f * 24.0f, __func__, "a single sample moved more than 1% of the jump");
 }
 
+void silence_after_signal_leaves_no_denormals() {
+    // Given a tilted core that has just processed a loud low sine
+    tilt::TiltEq eq;
+    eq.prepare(kSampleRate);
+    eq.setTilt(6.0f);
+    const int n = static_cast<int>(kSampleRate);
+    std::vector<float> buffer(n);
+    for (int i = 0; i < n / 10; ++i)
+        buffer[i] = static_cast<float>(0.9 * std::sin(2.0 * M_PI * 100.0 * i / kSampleRate));
+    float* channels[] = {buffer.data()};
+    eq.process(channels, 1, n / 10);
+
+    // When two seconds of silence follow
+    std::vector<float> silence(2 * n, 0.0f);
+    float* silent[] = {silence.data()};
+    eq.process(silent, 1, 2 * n);
+
+    // Then no output sample is a tiny nonzero value (host_sim's denormal threshold,
+    // which also covers every true subnormal): the filter state decays to exact zero
+    bool tiny = false;
+    for (float s : silence)
+        if (s != 0.0f && std::fabs(s) < 1e-30f) tiny = true;
+    check(!tiny, __func__, "silence produced denormal-range samples");
+}
+
 }  // namespace
 
 int main() {
@@ -166,6 +191,7 @@ int main() {
     smoothed_tilt_moves_monotonically_to_target();
     smoothed_tilt_settles_between_15_and_25_ms();
     smoothed_tilt_never_moves_more_than_1_percent_per_sample();
+    silence_after_signal_leaves_no_denormals();
     if (failures == 0) std::printf("all core tests passed\n");
     return failures == 0 ? 0 : 1;
 }

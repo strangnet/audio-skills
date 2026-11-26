@@ -36,8 +36,10 @@ public:
 
 private:
     juce::AudioProcessorValueTreeState state_;
+    std::atomic<float>* output_ = nullptr;
     std::atomic<float>* tilt_ = nullptr;
     tilt::TiltEq eq_;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> outputGain_{1.0f};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TiltEqProcessor)
 };
