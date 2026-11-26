@@ -1,6 +1,6 @@
 # 11: audio-parameters gives parameter, state and preset know-how
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 01
 

@@ -18,8 +18,9 @@ claude plugin eval . --scaffold --allow-tools Bash Write Edit --no-publish
 
 | Case | Checks |
 |---|---|
-
-No cases yet: they arrive with the skills.
+| `audio-parameters-add-parameter` | Adding a mix parameter to a released tilt EQ fires `audio-parameters`. One grader per advice item: stable id, range/skew/unit, automatable, append with a fixed MPC count, harmless parameter 0, host ignores defaults/steps/text-to-value, effects get no MIDI, Knob FX mapping, versioned state that still loads, presets by id, and a parameter spec row. Edits nothing. |
+| `audio-parameters-rename-migration` | Renaming Drive and removing Tone in a released plugin: keeps the `drive` id, keeps Tone's slot or retires its id without renumbering, migrates saved state, and notes the MPC's index-based Knob FX mapping and programs. Edits nothing. |
+| `audio-parameters-not-triggered` | A Claude Code plugin settings and CLI `--timeout` question doesn't fire `audio-parameters`. |
 
 ## Sandbox notes
 
