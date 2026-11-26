@@ -1,5 +1,6 @@
-"""Real-time checker: finds processBlock and process(ProcessContext&) bodies by
-matching braces and reports allocation, locks, I/O and logging inside them."""
+"""Real-time checker: finds processBlock, process(ProcessContext&) and
+`// realtime`-marked bodies by matching braces, and reports allocation, locks,
+I/O and logging inside them, a missing denormal guard, and opt-out markers."""
 
 import importlib.util
 import subprocess
@@ -226,3 +227,194 @@ def test_bad_path_prints_usage_and_exits_with_usage_error(tmp_path, args):
     assert result.returncode == 2, result.stdout + result.stderr
     assert "usage:" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+# Edge cases (task 08)
+
+
+def test_core_function_with_the_marker_breaking_a_rule_is_reported(tmp_path):
+    # Given a core header whose process function carries the real-time marker
+    # on the line before it and grows a container on line 7
+    source = write(
+        tmp_path / "core" / "gain.h",
+        "#include <vector>\n"
+        "namespace gain {\n"
+        "class Gain {\n"
+        "public:\n"
+        "    // realtime\n"
+        "    void process(float* const* channels, int numChannels, int numFrames) {\n"
+        "        history_.push_back(channels[0][0]);\n"
+        "    }\n"
+        "private:\n"
+        "    std::vector<float> history_;\n"
+        "};\n"
+        "}\n",
+    )
+
+    # When the real-time checker runs on the core
+    result = run_check(source)
+
+    # Then it reports that line with severity error and the rule, and fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f"{source}:7: error: allocation: " in result.stdout
+    assert result.stdout.count(": error:") == 1
+
+
+def test_processblock_with_no_denormal_protection_warns_and_succeeds(tmp_path):
+    # Given a clean processBlock on line 1 with no denormal protection
+    source = write(
+        tmp_path / "PluginProcessor.cpp",
+        "void P::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)\n"
+        "{\n"
+        "    buffer.applyGain (gain);\n"
+        "}\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then it reports a denormal warning on the processBlock line and still succeeds
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"{source}:1: warning: denormal: " in result.stdout
+    assert ": error:" not in result.stdout
+
+
+def test_allocation_outside_every_realtime_body_is_not_reported(tmp_path):
+    # Given allocations in a constructor, prepareToPlay and reset, around a clean processBlock
+    source = write(
+        tmp_path / "PluginProcessor.cpp",
+        "P::P() { scratch.reserve (512); }\n"
+        "void P::prepareToPlay (double, int n) { scratch.resize (n); }\n"
+        "void P::reset() { delete[] old; old = new float[16]; }\n"
+        "void P::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)\n"
+        "{\n"
+        "    juce::ScopedNoDenormals noDenormals;\n"
+        "    buffer.applyGain (gain);\n"
+        "}\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then nothing is reported and it succeeds
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ": error:" not in result.stdout
+
+
+def test_inline_processblock_followed_by_allocating_constructor_scans_only_processblock(tmp_path):
+    # Given an in-class processBlock whose body holds nested braces, followed by
+    # a constructor that allocates
+    source = write(
+        tmp_path / "PluginProcessor.h",
+        "class P : public juce::AudioProcessor {\n"
+        "public:\n"
+        "    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override {\n"
+        "        juce::ScopedNoDenormals noDenormals;\n"
+        "        for (int i = 0; i < b.getNumSamples(); ++i) { b.getWritePointer (0)[i] *= g; }\n"
+        "    }\n"
+        "    P() { buffer.resize (1024); auto* p = new float[8]; }\n"
+        "    std::vector<float> buffer;\n"
+        "};\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then the constructor isn't scanned: nothing is reported and it succeeds
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ": error:" not in result.stdout
+    assert "no real-time body found" not in result.stdout
+
+
+def test_forbidden_word_only_in_a_comment_or_string_literal_is_not_reported(tmp_path):
+    # Given a processBlock that mentions forbidden words only in comments and
+    # string literals, including a closing brace inside a string
+    source = write(
+        tmp_path / "PluginProcessor.cpp",
+        "void P::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)\n"
+        "{\n"
+        "    juce::ScopedNoDenormals noDenormals;\n"
+        "    // never new or malloc here, and no std::mutex or printf either\n"
+        "    /* a lock_guard would block;\n"
+        "       so would cout */\n"
+        '    const char* label = "} new File push_back (x)";\n'
+        "    buffer.applyGain (gain);\n"
+        "}\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then nothing is reported and it succeeds
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ": error:" not in result.stdout
+
+
+def test_helper_process_without_processcontext_or_marker_is_not_scanned(tmp_path):
+    # Given a helper class whose process method takes a plain float, has no
+    # marker, and allocates
+    source = write(
+        tmp_path / "Smoother.h",
+        "class Smoother {\n"
+        "public:\n"
+        "    float process(float target) {\n"
+        "        history_.push_back(target);\n"
+        "        return target;\n"
+        "    }\n"
+        "    std::vector<float> history_;\n"
+        "};\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then it isn't scanned: no real-time body, no findings, success
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ": error:" not in result.stdout
+    assert f"{source}: no real-time body found" in result.stdout
+
+
+OPTED_OUT = """\
+void P::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+    events.push_back (e); // realtime-ok: capacity reserved in prepareToPlay
+}
+"""
+
+
+@pytest.mark.parametrize("verbose", [False, True], ids=["quiet", "verbose"])
+def test_opt_out_with_a_reason_is_suppressed_and_listed_in_verbose_mode(tmp_path, verbose):
+    # Given a flagged line (line 4) that carries the opt-out marker with a reason
+    source = write(tmp_path / "PluginProcessor.cpp", OPTED_OUT)
+
+    # When the real-time checker runs, with and without --verbose
+    result = run_check(*(["--verbose"] if verbose else []), source)
+
+    # Then the line isn't reported and the checker succeeds
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ": error:" not in result.stdout
+    # And only verbose mode lists it, with its rule and reason
+    listed = f"{source}:4: suppressed: allocation: "
+    assert (listed in result.stdout) == verbose, result.stdout
+    assert ("capacity reserved in prepareToPlay" in result.stdout) == verbose
+
+
+@pytest.mark.parametrize("tag", ["// realtime-ok", "// realtime-ok:", "// realtime-ok:   "])
+def test_opt_out_marker_with_no_reason_is_reported_as_an_error(tmp_path, tag):
+    # Given a flagged line (line 4) whose opt-out marker has no reason
+    source = write(
+        tmp_path / "PluginProcessor.cpp",
+        "void P::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)\n"
+        "{\n"
+        "    juce::ScopedNoDenormals noDenormals;\n"
+        f"    events.push_back (e); {tag}\n"
+        "}\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then the marker itself is reported as an error, and the checker fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f"{source}:4: error: opt-out: " in result.stdout
