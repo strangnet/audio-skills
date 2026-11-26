@@ -1,0 +1,20 @@
+{
+  "kit": "mpc-red",
+  "pages": [
+    {
+      "name": "MAIN",
+      "controls": [
+        { "param": "Tilt", "widget": "knob" },
+        { "param": "Output", "widget": "knob" },
+        "empty",
+        "empty"
+      ]
+    }
+  ],
+  "style": {
+    "background": "ff1e1d1e",
+    "accent": "ffd31145",
+    "text": "ffffffff",
+    "muted": "ff6a6a6c"
+  }
+}

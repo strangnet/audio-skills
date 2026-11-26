@@ -1,0 +1,23 @@
+{
+  "name": "Tilt EQ",
+  "manufacturer": "strangnet",
+  "version": "0.1.0",
+  "format": "vst2",
+  "kind": "effect",
+  "uid": "StTl",
+  "numInputs": 2,
+  "numOutputs": 2,
+  "category": "Effect",
+  "shortName": "Tilt EQ",
+  "knobs": [
+    { "parameter": 1, "label": "Tilt" },
+    { "parameter": 0, "label": "Output" }
+  ],
+  "shiftKnobs": [],
+  "file32": "VST/tilt-eq-arm32.so",
+  "file64": "VST/tilt-eq-arm64.so",
+  "description": "Tilt EQ: one control tilts the spectrum around 1 kHz. Example plugin from strangnet-audio-skills.",
+  "author": "strangnet",
+  "url": "",
+  "license": "MIT"
+}

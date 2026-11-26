@@ -9,19 +9,26 @@ Outcome and exit code: fail (1) if any check failed or was skipped because a
 check it depends on failed; otherwise incomplete (2) if any check was skipped;
 otherwise pass (0).
 
-    python3 examples/tilt-eq/check.py
+    JUCE_DIR=<JUCE 9.0.6> MPC_SDK=<Akai SDK clone> python3 examples/tilt-eq/check.py
+
+zig comes from $ZIG or PATH and is handed to the SDK's build tool, so that tool
+never installs zig itself. The SDK's build tool writes into examples/tilt-eq/mpc/build/
+(gitignored) and, on first use, builds host_sim into the SDK clone's .sdk-tools/.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -199,8 +206,194 @@ def auval() -> tuple[bool, str]:
     return ok, output[-3000:]
 
 
+# --- MPC wrapper ---------------------------------------------------------------
+
+
+def find_zig(environ: Mapping[str, str], which: Callable[[str], str | None]) -> Path | None:
+    """The zig to hand the SDK's build tool, so the tool never installs one itself.
+
+    $ZIG wins when set; if it names a missing file, there is no zig rather than a
+    silent fallback to a different one.
+    """
+    if environ.get("ZIG"):
+        chosen = Path(environ["ZIG"])
+        return chosen if chosen.is_file() else None
+    on_path = which("zig")
+    return Path(on_path) if on_path else None
+
+
+def find_mpc_sdk(environ: Mapping[str, str]) -> Path | None:
+    """The Akai SDK checkout named by $MPC_SDK, if it holds the SDK's build tool."""
+    if not environ.get("MPC_SDK"):
+        return None
+    sdk = Path(environ["MPC_SDK"])
+    return sdk if (sdk / "tools" / "build.py").is_file() else None
+
+
+def mpc_build_command(sdk: Path, project: Path, zig: Path, python: str) -> list[str]:
+    """The SDK's build tool, called with absolute paths and the zig this script found.
+
+    Builds native (for host_sim), arm32 and arm64, and runs the SDK's validation.
+    """
+    return [
+        python, str((sdk / "tools" / "build.py").absolute()), str(project.absolute()),
+        "--target", "all", "--toolchain", "zig", "--zig", str(zig.absolute()),
+    ]
+
+
+MAX_KNOB_LABEL = 8  # three knob labels share the MPC's 320-pixel screen (SDK docs/knob-fx.md)
+
+
+def knob_fx_problems(manifest: dict, num_params: int) -> list[str]:
+    """What's wrong with the manifest's Knob FX mapping, if anything.
+
+    Every MPC effect needs one; without it the knobs drive parameters 0-5 as "Param 1" to "Param 6".
+    """
+    if not (manifest.get("knobs") or manifest.get("shiftKnobs")):
+        return ["plugin.json has no Knob FX mapping (knobs or shiftKnobs)"]
+    problems = []
+    for key in ("knobs", "shiftKnobs"):
+        for i, knob in enumerate(manifest.get(key, [])):
+            where = f"{key}[{i}]"
+            parameter = knob["parameter"]
+            if not 0 <= parameter < num_params:
+                problems.append(
+                    f"{where}: parameter {parameter} doesn't exist (the plugin has {num_params} parameters)"
+                )
+            label = knob.get("label")
+            if not label:
+                problems.append(f"{where}: has no label")
+            elif len(label) > MAX_KNOB_LABEL:
+                problems.append(f"{where}: label '{label}' is longer than {MAX_KNOB_LABEL} characters")
+    return problems
+
+
+HOST_SIM_CRASHED = 2  # host_sim's exit code when the plugin crashed (SDK tools/host-sim/README.md)
+
+
+def host_sim_result(returncode: int, output: str) -> tuple[bool, str]:
+    """Pass when host_sim reports no FAIL; WARN lines are allowed. On failure, the
+    detail is the FAIL lines, or the crash report when the plugin crashed."""
+    if returncode == HOST_SIM_CRASHED:
+        crash = output[output.find("CRASH"):] if "CRASH" in output else output
+        return False, crash.strip()
+    fails = [line for line in output.splitlines() if line.startswith("FAIL ")]
+    return returncode == 0 and not fails, "\n".join(fails)
+
+
+WRAPPERS = ("juce", "mpc")
+SOURCE_SUFFIXES = (".h", ".hpp", ".cpp", ".cc", ".cxx")
+QUOTED_INCLUDE = re.compile(r'^\s*#\s*include\s*"([^"]+)"', re.MULTILINE)
+
+
+def quoted_includes(example: Path, wrapper: str):
+    """Each (source file, included name) for the wrapper's `#include "..."` lines."""
+    for source in sorted((example / wrapper).rglob("*")):
+        if source.suffix in SOURCE_SUFFIXES and source.is_file():
+            for name in QUOTED_INCLUDE.findall(source.read_text()):
+                yield source, name
+
+
+def core_include_problems(example: Path) -> list[str]:
+    """Exactly one copy of each core header exists, and both wrappers include it by
+    a relative path that resolves to that copy (not through an include path)."""
+    core_headers = {path.resolve(): path for path in (example / "core").glob("*.h")}
+    core_names = {path.name: path for path in core_headers.values()}
+
+    def shown(path: Path) -> str:
+        return path.relative_to(example).as_posix()
+
+    problems = [
+        f"{shown(path)}: second copy of core header {path.name}"
+        for path in sorted(example.rglob("*"))
+        if path.name in core_names and path.resolve() not in core_headers
+    ]
+    for wrapper in WRAPPERS:
+        included = False
+        for source, name in quoted_includes(example, wrapper):
+            if (source.parent / name).resolve() in core_headers:
+                included = True
+            elif Path(name).name in core_names:
+                problems.append(
+                    f'{shown(source)}: #include "{name}" doesn\'t resolve to '
+                    f"{shown(core_names[Path(name).name])}"
+                )
+        if not included:
+            problems.append(f"{wrapper}: no source includes the core")
+    return problems
+
+
+def fingerprint(folder: Path) -> dict[str, str]:
+    """A SHA-256 per file in the folder, keyed by its path relative to the folder."""
+    return {
+        path.relative_to(folder).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in folder.rglob("*")
+        if path.is_file()
+    }
+
+
+def changed_files(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """Each file that was modified, deleted or added between two fingerprints."""
+    changes = []
+    for name in sorted(before.keys() | after.keys()):
+        if name not in after:
+            changes.append(f"{name} was deleted")
+        elif name not in before:
+            changes.append(f"{name} was added")
+        elif before[name] != after[name]:
+            changes.append(f"{name} was modified")
+    return changes
+
+
+ZIG = Tool("zig", hint="Homebrew: brew install zig, or set ZIG to a zig executable")
+MPC_SDK = Tool("MPC SDK", hint="a clone of Akai's MPC Plugin Builder SDK, with MPC_SDK set to its path")
+
+MPC_PROJECT = HERE / "mpc"
+MPC_BUILD = MPC_PROJECT / "build"  # where the SDK's build tool writes; gitignored
+MPC_NATIVE = MPC_BUILD / "native" / "tilt-eq.dylib"
+
+
+def one_core_copy() -> tuple[bool, str]:
+    problems = core_include_problems(HERE)
+    return not problems, "\n".join(problems)
+
+
+def mpc_build() -> tuple[bool, str]:
+    """Native, arm32 and arm64 builds plus the SDK's validation, through the SDK's build tool."""
+    sdk, zig = find_mpc_sdk(os.environ), find_zig(os.environ, shutil.which)
+    assert sdk is not None and zig is not None  # run_checks skips this check otherwise
+    ok, output = run_tool(mpc_build_command(sdk, MPC_PROJECT, zig, python=sys.executable))
+    return ok, output[-3000:]
+
+
+def mpc_knob_fx() -> tuple[bool, str]:
+    manifest = json.loads((MPC_PROJECT / "plugin.json").read_text())
+    params = json.loads((MPC_BUILD / "params.json").read_text())["params"]
+    problems = knob_fx_problems(manifest, num_params=len(params))
+    return not problems, "\n".join(problems)
+
+
+def mpc_host_sim() -> tuple[bool, str]:
+    sdk = find_mpc_sdk(os.environ)
+    assert sdk is not None  # run_checks skips this check otherwise
+    run = subprocess.run(
+        [str(sdk / ".sdk-tools" / "host_sim"), str(MPC_NATIVE), "test"], capture_output=True, text=True
+    )
+    return host_sim_result(run.returncode, run.stdout + run.stderr)
+
+
+# Taken when the script loads, before any build runs.
+CORE_BEFORE_BUILDS = fingerprint(HERE / "core")
+
+
+def core_unchanged() -> tuple[bool, str]:
+    changes = changed_files(CORE_BEFORE_BUILDS, fingerprint(HERE / "core"))
+    return not changes, "\n".join(changes)
+
+
 CHECKS = [
     Check("core purity", run=core_purity),
+    Check("one copy of the core, included by both wrappers", run=one_core_copy),
     Check("real-time safety", run=realtime_safety),
     Check("core behaviour test", run=core_behaviour_test, tools=[CXX]),
     Check("JUCE build (VST3, AU, CLAP)", run=juce_build, tools=[CMAKE, NINJA, JUCE]),
@@ -212,6 +405,11 @@ CHECKS = [
     Check("pluginval AU", run=pluginval(INSTALLED_AU), tools=[PLUGINVAL],
           depends_on=["install AU for validation"]),
     Check("auval", run=auval, tools=[AUVAL], depends_on=["install AU for validation"]),
+    Check("MPC build (arm32, arm64, SDK validation)", run=mpc_build, tools=[MPC_SDK, ZIG]),
+    Check("MPC Knob FX mapping", run=mpc_knob_fx,
+          depends_on=["MPC build (arm32, arm64, SDK validation)"]),
+    Check("host_sim", run=mpc_host_sim, depends_on=["MPC build (arm32, arm64, SDK validation)"]),
+    Check("builds left the core unchanged", run=core_unchanged),
 ]
 
 
@@ -219,6 +417,10 @@ def find_tool(name: str) -> bool:
     if name == "JUCE":
         juce_dir = os.environ.get("JUCE_DIR")
         return bool(juce_dir) and (Path(juce_dir) / "CMakeLists.txt").is_file()
+    if name == "zig":
+        return find_zig(os.environ, shutil.which) is not None
+    if name == "MPC SDK":
+        return find_mpc_sdk(os.environ) is not None
     return shutil.which(name) is not None
 
 

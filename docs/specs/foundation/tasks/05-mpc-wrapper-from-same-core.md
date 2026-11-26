@@ -1,6 +1,6 @@
 # 05: The MPC wrapper builds from the same core and passes host_sim
 
-Status: ready
+Status: ready (everything passes; only the manual MPC check remains)
 Spec: [foundation](../../foundation.md)
 Blocked by: 02
 
@@ -22,3 +22,15 @@ This completes assumption M1.
 - Example: exactly one copy of each core header exists, both wrappers' includes resolve to those files, and no build modifies them
 - Example: the MPC wrapper's parameter 0 is harmless (code inspection)
 - Example: manual MPC check (it loads on an MPC; the Q-Link changes the sound)
+
+## Decisions
+- Parameter 0 is `Output`, a dB trim from -12 to +12, default 0 dB, smoothed over 20 ms in the wrapper. Tilt is parameter 1. The MPC nudges parameter 0 to 1.0 or 0.0 and straight back on every prepare (SDK `docs/host-contract.md`). A smoothed trim at unity makes that nudge inaudible, and `parameterChanged` does nothing. The JUCE wrapper still needs `Output` at index 0 too, so both targets share one parameter order.
+- Knob FX mapping: knob 1 is `Tilt`, knob 2 is `Output`.
+
+## Manual MPC check
+1. Run the example check with `MPC_SDK` set. Then copy `examples/tilt-eq/mpc/build/strangnet - VST - Tilt EQ/` into a folder named `VST2 Plugins` on the MPC's drive (SDK `docs/install-and-test.md`).
+2. Load Tilt EQ as an insert effect on a track with audio.
+3. Turn the first Q-Link, or Knob FX knob 1, labelled `Tilt`. Turning it right should brighten the sound and turning it left should darken it.
+4. Turn knob 2, labelled `Output`. The level should change, with no clicks.
+
+It passes when the plugin loads and both controls change the sound as described.
