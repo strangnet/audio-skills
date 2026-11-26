@@ -1,6 +1,6 @@
 # 10: audio-dsp gives real-time and architecture know-how
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 08
 
