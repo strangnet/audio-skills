@@ -1,6 +1,6 @@
 # 07: The real-time checker catches rule breaks in audio callbacks, and the script runs it
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 02
 
