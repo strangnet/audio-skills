@@ -24,7 +24,7 @@ This completes assumption M1.
 - Example: manual MPC check (it loads on an MPC; the Q-Link changes the sound)
 
 ## Decisions
-- Parameter 0 is `Output`, a dB trim from -12 to +12, default 0 dB, smoothed over 20 ms in the wrapper. Tilt is parameter 1. The MPC nudges parameter 0 to 1.0 or 0.0 and straight back on every prepare (SDK `docs/host-contract.md`). A smoothed trim at unity makes that nudge inaudible, and `parameterChanged` does nothing. The JUCE wrapper still needs `Output` at index 0 too, so both targets share one parameter order.
+- Parameter 0 is `Output`, a dB trim from -12 to +12, default 0 dB, smoothed over 20 ms in the core. Tilt is parameter 1. Both wrappers build their parameters from the core's table (`tilt::kParams`). The MPC nudges parameter 0 to 1.0 or 0.0 and straight back on every prepare (SDK `docs/host-contract.md`). A smoothed trim at unity makes that nudge inaudible, and `parameterChanged` does nothing.
 - Knob FX mapping: knob 1 is `Tilt`, knob 2 is `Output`.
 
 ## Manual MPC check

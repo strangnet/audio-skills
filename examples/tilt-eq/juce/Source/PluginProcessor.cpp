@@ -4,21 +4,15 @@
 
 namespace {
 
-// Stable parameter ids: never rename or reuse them once released.
-const juce::ParameterID kOutputId{"output", 1};
-const juce::ParameterID kTiltId{"tilt", 1};
-
-constexpr double kOutputSmoothingSeconds = 0.020;
-
-// The order matches the MPC wrapper: Output (index 0, harmless at its 0 dB
-// default, because the MPC nudges parameter 0), then Tilt.
+// The parameters come from the core's table (tilt::kParams): the same ids and the
+// same order as the MPC wrapper. Ids are stable forever.
 juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
-    const auto dB = juce::AudioParameterFloatAttributes().withLabel("dB");
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    layout.add(std::make_unique<juce::AudioParameterFloat>(
-        kOutputId, "Output", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.01f), 0.0f, dB));
-    layout.add(std::make_unique<juce::AudioParameterFloat>(
-        kTiltId, "Tilt", juce::NormalisableRange<float>(-12.0f, 12.0f, 0.01f), 0.0f, dB));
+    for (const auto& p : tilt::kParams) {
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{p.id, 1}, p.name, juce::NormalisableRange<float>(p.min, p.max, 0.01f), p.def,
+            juce::AudioParameterFloatAttributes().withLabel(p.unit)));
+    }
     return layout;
 }
 
@@ -28,15 +22,19 @@ TiltEqProcessor::TiltEqProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      state_(*this, nullptr, "TiltEqState", createLayout()),
-      output_(state_.getRawParameterValue(kOutputId.getParamID())),
-      tilt_(state_.getRawParameterValue(kTiltId.getParamID())) {}
+      state_(*this, nullptr, "TiltEqState", createLayout()) {
+    for (int i = 0; i < tilt::kNumParams; ++i)
+        params_[static_cast<size_t>(i)] = state_.getRawParameterValue(tilt::kParams[static_cast<size_t>(i)].id);
+}
 
 void TiltEqProcessor::prepareToPlay(double sampleRate, int /*samplesPerBlock*/) {
     eq_.prepare(sampleRate);
-    eq_.setTilt(tilt_->load());
-    outputGain_.reset(sampleRate, kOutputSmoothingSeconds);
-    outputGain_.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(output_->load()));
+    pushParams();
+}
+
+void TiltEqProcessor::pushParams() {
+    for (int i = 0; i < tilt::kNumParams; ++i)
+        eq_.setParam(i, params_[static_cast<size_t>(i)]->load());
 }
 
 bool TiltEqProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -49,14 +47,12 @@ bool TiltEqProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
 
 void TiltEqProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& /*midi*/) {
     juce::ScopedNoDenormals noDenormals;
-    eq_.setTilt(tilt_->load());
+    pushParams();
     eq_.process(buffer.getArrayOfWritePointers(), buffer.getNumChannels(), buffer.getNumSamples());
-    outputGain_.setTargetValue(juce::Decibels::decibelsToGain(output_->load()));
-    outputGain_.applyGain(buffer, buffer.getNumSamples());
 }
 
 juce::AudioProcessorEditor* TiltEqProcessor::createEditor() {
-    return new TiltEqEditor(*this, *state_.getParameter(kTiltId.getParamID()));
+    return new TiltEqEditor(*this, *state_.getParameter(tilt::kParams[tilt::kTilt].id));
 }
 
 void TiltEqProcessor::getStateInformation(juce::MemoryBlock& destData) {

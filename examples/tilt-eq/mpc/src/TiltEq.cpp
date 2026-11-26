@@ -1,47 +1,39 @@
 // Tilt EQ: the MPC wrapper around the portable core in ../../core.
 //
-// Parameter order is fixed and shared with the JUCE wrapper:
-//   0  Output  dB trim, default 0 dB. It's at index 0 because the MPC nudges
-//              parameter 0 to 1.0 or 0.0 and straight back on every prepare
-//              (SDK docs/host-contract.md). A smoothed trim that defaults to
-//              unity makes that nudge inaudible, and parameterChanged does nothing.
-//   1  Tilt    dB, -12..+12, the core's one control.
+// The parameters, their ids and their order come from the core's table
+// (tilt::kParams), shared with the JUCE wrapper. Index 0 is Output, a trim that
+// defaults to 0 dB and is smoothed in the core: the MPC nudges parameter 0 to 1.0
+// or 0.0 and straight back on every prepare (SDK docs/host-contract.md), and that
+// nudge is inaudible. parameterChanged does nothing. The Knob FX mapping in
+// plugin.json refers to these indices.
 
 #include "mpc_plugin.h"
 
 #include "../../core/tilt_eq.h"
 
 #include <algorithm>
-#include <cmath>
 
 namespace {
 
-enum ParamIndex { kOutput = 0, kTilt, kNumParams };
-
 constexpr int kMaxChannels = 2;
-constexpr double kTrimSmoothingSeconds = 0.020;
-
-float dbToGain(float db) { return std::pow(10.0f, db / 20.0f); }
+constexpr int kDisplayDecimals = 1;
 
 }  // namespace
 
 class TiltEq : public mpc::Plugin {
 public:
     TiltEq() : mpc::Plugin(makeInfo()) {
-        addParam(mpc::floatParam("output", "Output", -12.0f, 12.0f, 0.0f, "dB", 1));
-        addParam(mpc::floatParam("tilt", "Tilt", -12.0f, 12.0f, 0.0f, "dB", 1));
+        for (const tilt::ParamInfo& p : tilt::kParams) {
+            addParam(mpc::floatParam(p.id, p.name, p.min, p.max, p.def, p.unit, kDisplayDecimals));
+        }
     }
 
     void prepare(double sampleRate, int /*maxBlockSize*/) override {
         eq_.prepare(sampleRate);
-        trimCoeff_ = static_cast<float>(std::exp(std::log(0.01) / (kTrimSmoothingSeconds * sampleRate)));
-        reset();
+        pushParams();
     }
 
-    void reset() override {
-        eq_.setTilt(get(kTilt));
-        trimGain_ = dbToGain(get(kOutput));
-    }
+    void reset() override { pushParams(); }
 
     void process(mpc::ProcessContext& ctx) override {
         const int numChannels = std::min({ctx.numOutputs, ctx.numInputs, kMaxChannels});
@@ -55,19 +47,16 @@ public:
             }
         }
 
-        eq_.setTilt(get(kTilt));
+        pushParams();
         eq_.process(ctx.outputs, numChannels, numFrames);
-
-        const float targetGain = dbToGain(get(kOutput));
-        for (int i = 0; i < numFrames; ++i) {
-            trimGain_ = targetGain + trimCoeff_ * (trimGain_ - targetGain);
-            for (int ch = 0; ch < numChannels; ++ch) {
-                ctx.outputs[ch][i] *= trimGain_;
-            }
-        }
     }
 
 private:
+    // Reads each parameter once and hands it to the core in plain units.
+    void pushParams() {
+        for (int i = 0; i < tilt::kNumParams; ++i) eq_.setParam(i, get(i));
+    }
+
     static mpc::PluginInfo makeInfo() {
         mpc::PluginInfo info;
         info.name = "Tilt EQ";
@@ -82,8 +71,6 @@ private:
     }
 
     tilt::TiltEq eq_;
-    float trimGain_ = 1.0f;
-    float trimCoeff_ = 0.0f;
 };
 
 MPC_PLUGIN_ENTRY(TiltEq)

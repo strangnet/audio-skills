@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <string>
 #include <vector>
 
 namespace {
@@ -157,6 +158,36 @@ void smoothed_tilt_never_moves_more_than_1_percent_per_sample() {
     check(largestStep <= 0.01f * 24.0f, __func__, "a single sample moved more than 1% of the jump");
 }
 
+void parameter_table_defines_output_then_tilt() {
+    // Given the core's parameter table, the one definition both wrappers use
+
+    // Then it holds Output at index 0, harmless at its 0 dB default, then Tilt
+    check(tilt::kNumParams == 2, __func__, "expected two parameters");
+    check(std::string(tilt::kParams[tilt::kOutput].id) == "output", __func__, "index 0 is not output");
+    check(tilt::kOutput == 0, __func__, "output is not parameter 0");
+    check(tilt::kParams[tilt::kOutput].def == 0.0f, __func__, "output default is not 0 dB");
+    check(std::string(tilt::kParams[tilt::kTilt].id) == "tilt", __func__, "index 1 is not tilt");
+}
+
+void output_trim_scales_the_signal_once_settled() {
+    // Given a core at 0 dB tilt and +6 dB output, set through the parameter interface
+    tilt::TiltEq eq;
+    eq.prepare(kSampleRate);
+    eq.setParam(tilt::kTilt, 0.0f);
+    eq.setParam(tilt::kOutput, 6.0f);
+    const int n = static_cast<int>(kSampleRate);
+    std::vector<float> buffer(n, 0.25f);
+    float* channels[] = {buffer.data()};
+
+    // When one second of a constant signal is processed
+    eq.process(channels, 1, n);
+
+    // Then the settled output is about twice the input (+6.02 dB)
+    check(std::fabs(buffer.back() / 0.25f - std::pow(10.0f, 6.0f / 20.0f)) < 1e-3f, __func__,
+          "settled output is not +6 dB");
+    check(buffer.front() < 0.26f, __func__, "output jumped instead of gliding");
+}
+
 void silence_after_signal_leaves_no_denormals() {
     // Given a tilted core that has just processed a loud low sine
     tilt::TiltEq eq;
@@ -192,6 +223,8 @@ int main() {
     smoothed_tilt_settles_between_15_and_25_ms();
     smoothed_tilt_never_moves_more_than_1_percent_per_sample();
     silence_after_signal_leaves_no_denormals();
+    parameter_table_defines_output_then_tilt();
+    output_trim_scales_the_signal_once_settled();
     if (failures == 0) std::printf("all core tests passed\n");
     return failures == 0 ? 0 : 1;
 }
