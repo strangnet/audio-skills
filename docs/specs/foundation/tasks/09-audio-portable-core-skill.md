@@ -1,6 +1,6 @@
 # 09: audio-portable-core gives the right advice and stays quiet when it should
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 06
 

@@ -24,6 +24,11 @@ claude plugin eval . --scaffold --allow-tools Bash Write Edit --no-publish
 | `audio-dsp-review-callback` | Reviewing a saturator's JUCE and MPC callbacks fires `audio-dsp`. One grader per advice item: no allocation, locks, I/O or logging including in the core, denormals, smoothing, aliasing and oversampling, latency reporting, variable block sizes (32 to 512 on the MPC), a CPU budget per target, and running the real-time checker on wrappers and core. Edits nothing. |
 | `audio-dsp-plan-dsp` | Planning a tape saturator's DSP for desktop and MPC fires `audio-dsp` and covers the architecture checklist (signal chain, channel layout, latency, oversampling, sample-rate dependence, CPU budget), with no planning phases, step order or document templates. |
 | `audio-dsp-not-triggered` | A Python WAV-to-FLAC batch converter question doesn't fire `audio-dsp`. |
+| `audio-portable-core-share-dsp` | Sharing a JUCE compressor's DSP with a new MPC plugin fires `audio-portable-core`. One grader per advice item: header-only standard-library core, relative includes (and why the SDK build needs them), no host types in the core, the real-time marker, parameter ids and order defined once, and running the core-purity checker. Edits nothing. |
+| `audio-portable-core-desktop-only` | Organising a desktop-only JUCE reverb doesn't fire `audio-portable-core`. |
+| `audio-portable-core-mpc-only-sdk` | Inside a stand-in SDK checkout (the SDK's top-level layout, an empty `tools/`, one plugin project), an MPC-only plugin question doesn't fire `audio-portable-core`. |
+| `audio-skills-not-for-claude-code-plugin` | Building a Claude Code plugin fires no `audio-*` skill. |
+| `audio-skills-not-for-cowork-plugin` | Building a Cowork plugin fires no `audio-*` skill. |
 
 ## Sandbox notes
 
