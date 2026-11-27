@@ -7,8 +7,10 @@ Behavioural evals for the skills in this plugin, run with `claude plugin eval`. 
 From the repo root:
 
 ```bash
-claude plugin eval . --scaffold --allow-tools Bash Write Edit --no-publish
+env -u MPC_SDK claude plugin eval . --scaffold --allow-tools Bash Write Edit --no-publish
 ```
+
+- `env -u MPC_SDK` keeps your own SDK path away from the run. The MPC cases name a stand-in SDK in the prompt instead, and must not see a real one. (Claude Code 2.1.332 already strips `MPC_SDK` from runs; unsetting it guards against a runner that doesn't.)
 
 - `--scaffold` is required. Each case builds its starting project with `scaffold.sh`, which runs in the agent's working directory.
 - `--allow-tools Bash Write Edit` is required. Without it, "must not write" graders pass trivially because the writes were denied.
@@ -42,10 +44,12 @@ claude plugin eval . --scaffold --allow-tools Bash Write Edit --no-publish
 | `audio-juce-mpc-only-sdk` | Inside a stand-in SDK checkout, an MPC-only plugin question doesn't fire `audio-juce`. |
 | `audio-juce-not-iplug2` | An iPlug2 plugin question doesn't fire `audio-juce`. |
 | `audio-juce-not-nih-plug` | A nih-plug plugin question doesn't fire `audio-juce`. |
+| `audio-mpc-external-sdk` | External SDK (M2): an MPC effect in `my-plugin/` and a stand-in SDK in `mpc-sdk/`, named in the prompt. Fires `audio-mpc`; checks the named folder holds the build tool; runs build, validation and the host simulator by absolute path with the real argument forms; names the project's `build/` and the SDK's `.sdk-tools/`; reads the stand-in `mpc-plugin-test` skill by path and reports the run as not passed because its sentinel line is missing; never calls a stand-in `mpc-plugin-*` skill through the skill tool, never runs the scaffolding tool, and keeps the project out of the SDK. |
 | `audio-skills-not-for-claude-code-plugin` | Building a Claude Code plugin fires no `audio-*` skill. |
 | `audio-skills-not-for-cowork-plugin` | Building a Cowork plugin fires no `audio-*` skill. |
 
 ## Sandbox notes
 
 - The agent runs with an isolated home directory, so toolchains installed under `~` are not visible, and package downloads are blocked. Cases use small scaffolded source trees and no toolchains.
-- Case `env` keys must start with `EVAL_`, so `$MPC_SDK` can't be passed through. MPC cases use a stand-in scaffold that mimics an SDK checkout's layout without any SDK files.
+- Case `env` keys must start with `EVAL_`, so `$MPC_SDK` can't be passed through, and a `.claude/settings.json` the scaffold writes isn't loaded either. MPC cases use a stand-in scaffold that mimics an SDK checkout's layout without any SDK files.
+- The agent's working folder is `<run temp>/home/cwd`, and the scaffold runs there. `audio-mpc` cases share their stand-in SDK through `_shared/stand-in-sdk.sh`, which each case's `scaffold.sh` sources by its own path; `_shared/` isn't a case. Skills inside the stand-in SDK (`mpc-sdk/.claude/skills/`, `mpc-sdk/.agents/skills/`) aren't discovered by the harness, so the agent can only read them as files.

@@ -61,8 +61,9 @@ Every skill works when installed on its own: each carries its own references and
 | `audio-juce` | JUCE 9 plugins with CMake on macOS: finding JUCE, plugin codes, module headers, CLAP through clap-juce-extensions, bus layouts for effects and instruments, the parameter tree, threads, the editor's lifecycle, programs, and host-facing pitfalls such as stale bundles. |
 | `audio-juce-webview` | WebView editors for JUCE 9 plugins on macOS: serving the page through the resource provider, JUCE's JavaScript interop library, relays and attachments, member order, gestures, native functions and events, what fails silently, and a binding checker script. |
 | `audio-portable-core` | One DSP core behind both a JUCE plugin and an MPC plugin: header-only standard-library C++17, relative includes, no host types, parameters defined once, and a core-purity checker script. |
+| `audio-mpc` | Akai MPC plugins kept outside the SDK checkout: finding the SDK through `$MPC_SDK` or by asking, calling the SDK's build, validation, packaging and scaffolding tools and its host simulator with absolute paths, where output and caches go, and reading Akai's skills and documents for facts while leaving their workflow out. |
 
-Inside an Akai MPC SDK checkout, Akai's own `mpc-plugin-*` skills cover MPC-only work, and these skills step aside. A skill for the MPC SDK (`audio-mpc`) is planned.
+Inside an Akai MPC SDK checkout, Akai's own `mpc-plugin-*` skills cover MPC-only work, and these skills step aside. `audio-mpc` is for the other case: an MPC plugin in your own repository, built with your SDK clone from outside it. It needs the SDK by nature: set `MPC_SDK` to your clone of Akai's [MPC Plugin Builder SDK](https://github.com/inmusic-software/mpc-plugin-builder-sdk), or tell the agent where it is.
 
 ### Checkers
 
