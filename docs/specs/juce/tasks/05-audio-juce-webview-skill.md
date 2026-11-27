@@ -1,6 +1,6 @@
 # 05: audio-juce-webview holds the WebView know-how
 
-Status: ready
+Status: done
 Spec: [juce](../../juce.md)
 Blocked by: 02, 03
 

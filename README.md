@@ -59,17 +59,19 @@ Every skill works when installed on its own: each carries its own references and
 | `audio-dsp` | Real-time rules for the audio callback and the code it calls, denormals, smoothing, aliasing and oversampling, latency, block sizes, the MPC's CPU budget, a DSP architecture checklist, and a real-time checker script. |
 | `audio-parameters` | Parameter, state and preset design: stable ids, ranges and skew, automation, the MPC host's parameter rules and Knob FX mapping, and versioned state with migrations. |
 | `audio-juce` | JUCE 9 plugins with CMake on macOS: finding JUCE, plugin codes, module headers, CLAP through clap-juce-extensions, bus layouts for effects and instruments, the parameter tree, threads, the editor's lifecycle, programs, and host-facing pitfalls such as stale bundles. |
+| `audio-juce-webview` | WebView editors for JUCE 9 plugins on macOS: serving the page through the resource provider, JUCE's JavaScript interop library, relays and attachments, member order, gestures, native functions and events, what fails silently, and a binding checker script. |
 | `audio-portable-core` | One DSP core behind both a JUCE plugin and an MPC plugin: header-only standard-library C++17, relative includes, no host types, parameters defined once, and a core-purity checker script. |
 
 Inside an Akai MPC SDK checkout, Akai's own `mpc-plugin-*` skills cover MPC-only work, and these skills step aside. A skill for the MPC SDK (`audio-mpc`) is planned.
 
 ### Checkers
 
-Two skills ship a checker: Python 3, standard library only, reading source code only. Run them from the skill's folder:
+Three skills ship a checker: Python 3, standard library only, reading source code only. Run them from the skill's folder:
 
 ```bash
-python3 scripts/check_realtime.py [--verbose] <file-or-folder>...   # audio-dsp
-python3 scripts/check_core_purity.py <core folder>...               # audio-portable-core
+python3 scripts/check_realtime.py [--verbose] <file-or-folder>...          # audio-dsp
+python3 scripts/check_core_purity.py <core folder>...                      # audio-portable-core
+python3 scripts/check_webview_bindings.py <editor sources> <UI folder>...  # audio-juce-webview
 ```
 
 Each prints `file:line: severity: rule: message` and exits 0 (no errors), 1 (errors) or 2 (usage error).
@@ -98,7 +100,7 @@ CI runs all five. Behavioural evals run locally with `claude plugin eval`; see [
 
 ## Credits
 
-- The real-time rules and the DSP architecture checklist build on the [Plugin Freedom System](https://github.com/glittercowboy/plugin-freedom-system) by Taches (glittercowboy), MIT as stated in its README: its DSP agent's real-time safety rules and its architecture template.
+- The real-time rules and the DSP architecture checklist build on the [Plugin Freedom System](https://github.com/glittercowboy/plugin-freedom-system) by Taches (glittercowboy), MIT as stated in its README: its DSP agent's real-time safety rules and its architecture template. Its troubleshooting patterns are also the source of the curated JUCE material in `audio-juce` and `audio-juce-webview`: only technical facts were kept, each checked against JUCE 9.0.6, and rules that 9.0.6 contradicts were replaced by the 9.0.6 behaviour.
 - The MPC facts are paraphrased from Akai's [MPC Plugin Builder SDK](https://github.com/inmusic-software/mpc-plugin-builder-sdk) by inMusic Brands, MIT (copyright (c) 2026 inMusic Brands, Inc.). Each reference cites the SDK document it draws on and the commit it was checked against. No long passages are quoted.
 
 ## License
