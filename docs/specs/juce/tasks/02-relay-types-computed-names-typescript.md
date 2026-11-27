@@ -1,6 +1,6 @@
 # 02: The checker handles relay types, computed names and TypeScript pages
 
-Status: ready
+Status: done
 Spec: [juce](../../juce.md)
 Blocked by: 01
 

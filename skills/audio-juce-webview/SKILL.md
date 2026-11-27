@@ -15,7 +15,9 @@ A JUCE WebView editor is two programs that only meet by name: C++ relays on one 
 python3 scripts/check_webview_bindings.py <editor sources> <UI folder>...
 ```
 
-Run it with this skill's folder as the base. It finds each relay construction's literal name and each state request's literal name, and reports, as `file:line: severity: rule: message`:
-- `relay-name`: a relay whose name no state request has, or a state request whose name no relay has
+Run it with this skill's folder as the base. It reads pages in `.html`, `.htm`, `.js`, `.mjs`, `.ts`, `.tsx` and `.jsx`. It finds each relay construction's name and each state request's name, and reports, as `file:line: severity: rule: message`:
+- `relay-name` error: a relay whose name no state request has, or a state request whose name no relay has
+- `relay-type` error: a state requested with the wrong function for its relay. `WebSliderRelay` pairs with `getSliderState`, `WebToggleButtonRelay` with `getToggleState`, `WebComboBoxRelay` with `getComboBoxState`
+- `relay-name` warning: names of one relay class that aren't string literals on one side (a relay built from a parameter table, `getSliderState(id)` in a loop). It comes once per class, and that class's unmatched names go unreported, since they can't be matched
 
-It ignores comments, other strings and the page's visible text, and skips `node_modules`, `.git`, `_deps` and CMake build folders. Exit 0 means no errors, 1 means errors, and 2 is a usage error.
+It ignores comments, other strings and the page's visible text, and skips `node_modules`, `.git`, `_deps` and CMake build folders. Exit 0 means no errors (warnings alone pass), 1 means errors, and 2 is a usage error.

@@ -3,15 +3,27 @@
 
 Relays are constructions of juce::WebSliderRelay, WebToggleButtonRelay or
 WebComboBoxRelay in C++ files (.h, .hpp, .cpp, .cc, .cxx): a declaration with a
-brace or parenthesis initialiser, or a make_unique of the class. A relay's name is
-the string literal passed to it. State requests are calls to getSliderState,
-getToggleState or getComboBoxState in page files (.html, .htm, .js, .mjs), called
-bare, through a namespace import or through an import renamed with `as`. A state's
-name is the string literal passed to it. Comments and other string literals are
-ignored; in HTML, only the contents of script elements are read.
+brace or parenthesis initialiser, a temporary, or a make_unique of the class. A
+relay's name is the string literal passed to it. State requests are calls to
+getSliderState, getToggleState or getComboBoxState in page files (.html, .htm, .js,
+.mjs, .ts, .tsx, .jsx), called bare, through a namespace import or through an import
+renamed with `as`. A state's name is the string literal passed to it. Comments and
+other string literals are ignored; in HTML, only the contents of script elements are
+read. Functions defined with a state function's name aren't requests.
 
-Reported as errors (rule relay-name): a relay whose name no state request has, and
-a state request whose name no relay has.
+Each relay class pairs with one state function: WebSliderRelay with getSliderState,
+WebToggleButtonRelay with getToggleState, WebComboBoxRelay with getComboBoxState.
+
+Reported as errors:
+- relay-name: a relay whose name no state request has, and a state request whose
+  name no relay has
+- relay-type: a state request whose name only relays of another class have, at the
+  request (a type mismatch still counts as a name match)
+
+Reported as a warning (rule relay-name): a relay class whose names one side computes
+(a relay constructed, or a state requested, with anything but a string literal). It
+is reported once per class, at the first computed site, and no unmatched names of
+that class are reported on either side. Warnings alone exit 0.
 
 Folders are searched recursively, leaving out node_modules, .git, _deps and any
 folder that holds a CMakeCache.txt.
@@ -27,12 +39,22 @@ import sys
 from pathlib import Path
 
 CPP_SUFFIXES = (".h", ".hpp", ".cpp", ".cc", ".cxx")
-PAGE_SUFFIXES = (".html", ".htm", ".js", ".mjs")
+PAGE_SUFFIXES = (".html", ".htm", ".js", ".mjs", ".ts", ".tsx", ".jsx")
 SKIPPED_FOLDERS = {"node_modules", ".git", "_deps"}
 
 RELAY_CLASS = re.compile(r"\bWeb(?:Slider|ToggleButton|ComboBox)Relay\b")
-LITERAL_ARGUMENT = re.compile(r'[{(]\s*"([^"\n]*)"')
+MAKE_UNIQUE_BEFORE = re.compile(r"make_unique\s*<\s*(?:juce\s*::\s*)?$")
+AFTER_MAKE_UNIQUE = re.compile(r"\s*>\s*[{(]")
+DECLARATOR = re.compile(r"\s*(?:[A-Za-z_]\w*\s*)?[{(]")
+NEXT_DECLARATOR = re.compile(r"\s*,\s*[A-Za-z_]\w*\s*[{(]")
 STATE_FUNCTIONS = ("getSliderState", "getToggleState", "getComboBoxState")
+STATE_FUNCTION_OF = {"WebSliderRelay": "getSliderState",
+                     "WebToggleButtonRelay": "getToggleState",
+                     "WebComboBoxRelay": "getComboBoxState"}
+RELAY_CLASS_OF = {function: relay_class for relay_class, function in STATE_FUNCTION_OF.items()}
+LITERAL = re.compile(r"""(["'`])[^"'`\n]*\1""")
+DEFINITION_BEFORE = re.compile(r"\bfunction\s*$")
+BODY_AFTER = re.compile(r"\s*\{")
 ALIAS = re.compile(r"\b(" + "|".join(STATE_FUNCTIONS) + r")\s+as\s+([A-Za-z_$][\w$]*)")
 SCRIPT_ELEMENT = re.compile(r"(<script\b[^>]*>)(.*?)</script\s*>", re.IGNORECASE | re.DOTALL)
 
@@ -86,38 +108,119 @@ def line_of(text, offset):
     return text.count("\n", 0, offset) + 1
 
 
+def closing(code, start):
+    """The offset of the bracket that closes the one at `start`, in masked code."""
+    depth = 0
+    for i in range(start, len(code)):
+        if code[i] in "([{":
+            depth += 1
+        elif code[i] in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(code)
+
+
+def argument(text, code, start, end):
+    """(name, offset) for the argument between `start` and `end`: a string literal's
+    contents and offset, (None, offset) for anything else, or None when it is empty."""
+    raw = code[start:end]
+    if not raw.strip():
+        return None
+    offset = start + len(raw) - len(raw.lstrip())
+    source = text[offset:offset + len(raw.strip())]
+    if LITERAL.fullmatch(raw.strip()) and not (source[0] == "`" and "${" in source):
+        return source[1:-1], offset + 1
+    return None, offset
+
+
 def relay_names(path):
-    """(name, path, line) for each literal name given to a relay class in a C++ file."""
+    """(name, path, line, class) for each relay construction in a C++ file.
+
+    `name` is None when the argument isn't a string literal. A construction is a
+    declaration (one or more declarators with a brace or parenthesis initialiser), a
+    temporary, or a make_unique of the class; other mentions of the class are types."""
     text = path.read_text()
     code = mask(text, "\"'")
     found = []
     for relay in RELAY_CLASS.finditer(code):
-        end = code.find(";", relay.end())
-        declaration_end = len(code) if end < 0 else end
-        for hit in LITERAL_ARGUMENT.finditer(code, relay.end(), declaration_end):
-            start, stop = hit.span(1)
-            found.append((text[start:stop], path, line_of(text, start)))
+        made = MAKE_UNIQUE_BEFORE.search(code[max(0, relay.start() - 64):relay.start()])
+        opening = (AFTER_MAKE_UNIQUE if made else DECLARATOR).match(code, relay.end())
+        while opening:
+            end = closing(code, opening.end() - 1)
+            request = argument(text, code, opening.end(), end)
+            if request:
+                name, offset = request
+                found.append((name, path, line_of(text, offset), relay.group()))
+            opening = None if made else NEXT_DECLARATOR.match(code, end + 1)
     return found
 
 
 def state_names(path):
-    """(name, path, line) for each literal name given to a state function in a page file."""
+    """(name, path, line, function) for each state request in a page file.
+
+    `name` is None when the argument isn't a string literal. `function` is the state
+    function's own name, even when it was called through an alias. Definitions of
+    functions with these names aren't requests."""
     text = path.read_text()
     if path.suffix in {".html", ".htm"}:
         text = scripts_only(text)
     code = mask(text, "\"'`")
-    functions = set(STATE_FUNCTIONS) | {alias.group(2) for alias in ALIAS.finditer(code)}
-    call = re.compile(r"(?<![\w$])(?:" + "|".join(map(re.escape, functions))
-                      + r""")\s*\(\s*(["'`])([^"'`\n]*)\1""")
-    return [(text[hit.start(2):hit.end(2)], path, line_of(text, hit.start(2)))
-            for hit in call.finditer(code)]
+    functions = {name: name for name in STATE_FUNCTIONS}
+    functions.update({alias.group(2): alias.group(1) for alias in ALIAS.finditer(code)})
+    call = re.compile(r"(?<![\w$])(" + "|".join(map(re.escape, functions)) + r")\s*\(")
+    found = []
+    for hit in call.finditer(code):
+        end = closing(code, hit.end() - 1)
+        before = code[max(0, hit.start() - 64):hit.start()]
+        if DEFINITION_BEFORE.search(before) or BODY_AFTER.match(code, end + 1):
+            continue
+        request = argument(text, code, hit.end(), end)
+        if request:
+            name, offset = request
+            found.append((name, path, line_of(text, offset), functions[hit.group(1)]))
+    return found
+
+
+def computed_warnings(relays, states):
+    """One relay-name warning per relay class whose names either side computes, at the
+    first place they are computed (the C++ side first), and the set of those classes."""
+    warnings, computed = [], set()
+    sites = ([(relay_class, path, line, "C++") for name, path, line, relay_class in relays
+              if name is None]
+             + [(RELAY_CLASS_OF[function], path, line, "page")
+                for name, path, line, function in states if name is None])
+    for relay_class, path, line, side in sites:
+        if relay_class in computed:
+            continue
+        computed.add(relay_class)
+        function = STATE_FUNCTION_OF[relay_class]
+        ours, theirs = (relay_class, function) if side == "C++" else (function, relay_class)
+        warnings.append(f"{path}:{line}: warning: relay-name: {ours} names are computed in"
+                        f" the {side}, so {theirs} names can't be matched")
+    return warnings, computed
 
 
 def unmatched(found, other, message):
     """A relay-name error for each name in `found` that `other` doesn't have."""
-    known = {name for name, _, _ in other}
+    known = {name for name, *_ in other}
     return [f"{path}:{line}: error: relay-name: {message.format(name)}"
-            for name, path, line in found if name not in known]
+            for name, path, line, _ in found if name not in known]
+
+
+def wrong_types(states, relays):
+    """A relay-type error for each state whose name only relays of other classes have."""
+    classes = {}
+    for name, _, _, relay_class in relays:
+        classes.setdefault(name, set()).add(relay_class)
+    report = []
+    for name, path, line, function in states:
+        relay_class = min(classes.get(name, ()), default=None)
+        if relay_class and function not in {STATE_FUNCTION_OF[c] for c in classes[name]}:
+            report.append(f'{path}:{line}: error: relay-type: state "{name}" is requested with'
+                          f" {function}, but its relay is a {relay_class}"
+                          f" (use {STATE_FUNCTION_OF[relay_class]})")
+    return report
 
 
 def source_files(path):
@@ -146,11 +249,17 @@ def main(argv):
         parser.error(f"no page files ({', '.join(PAGE_SUFFIXES)}) found")
     relays = [r for path in cpp_files for r in relay_names(path)]
     states = [s for path in page_files for s in state_names(path)]
-    report = (unmatched(relays, states, 'relay "{}" has no matching state in the page')
-              + unmatched(states, relays, 'state "{}" has no matching relay in the C++'))
-    for finding in report:
+    warnings, computed = computed_warnings(relays, states)
+    relays = [r for r in relays if r[0] is not None]
+    states = [s for s in states if s[0] is not None]
+    errors = (unmatched([r for r in relays if r[3] not in computed], states,
+                        'relay "{}" has no matching state in the page')
+              + unmatched([s for s in states if RELAY_CLASS_OF[s[3]] not in computed], relays,
+                          'state "{}" has no matching relay in the C++')
+              + wrong_types(states, relays))
+    for finding in warnings + errors:
         print(finding)
-    return 1 if report else 0
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":
