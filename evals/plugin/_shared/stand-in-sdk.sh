@@ -24,6 +24,13 @@
 #     a workflow step ("first scaffold a new project with the SDK's scaffolding tool") that an agent
 #     following audio-mpc leaves out.
 #   - (Install asked, task 04): the stand-in mpc-plugin-deploy skill's "MPC-SAFE-COPY" check.
+#   - audio-mpc-sdk-changed: stand_in_sdk_changed makes the SDK's documents name another minimum
+#     MPC OS version than the skill's summary (3.10.1).
+#   - audio-mpc-fix: stand_in_sdk_fix_trigger adds the "MPC-E117" assertion to the framework header,
+#     which makes the stub build fail for a project with more than 32 addParam( calls, and its fix to
+#     docs/troubleshooting.md: "#define MPC_MAX_PARAMS 64" above the include in the plugin's source.
+# Other variants (appended at the end of this file): stand_in_sdk_first_build (no tool cache, no zig,
+# read-only SDK) and stand_in_step_gate_project (a 36-parameter effect).
 
 # stand_in_sdk <dir> [clean|fail]
 #   clean: the host simulator prints a clean report and exits 0.
@@ -159,6 +166,42 @@ def ensure_host_sim():
     return exe
 
 
+def capacity_error(project, sources):
+    """Stand-in compiler error from the framework header, active only when the header holds the
+    MPC-E117 assertion (stand_in_sdk_fix_trigger). Returns the compiler messages, or None."""
+    header = os.path.join(SDK_ROOT, "framework", "mpc_plugin.h")
+    try:
+        with open(header, encoding="utf-8") as fh:
+            header_lines = fh.read().splitlines()
+    except OSError:
+        return None
+    assert_line = next((i + 1 for i, l in enumerate(header_lines) if "MPC-E117" in l and "static_assert" in l), None)
+    if assert_line is None:
+        return None
+    default = 32
+    for line in header_lines:
+        m = re.match(r"\s*#define\s+MPC_MAX_PARAMS\s+(\d+)", line)
+        if m:
+            default = int(m.group(1))
+            break
+    for name in sources:
+        path = os.path.join(project, "src", name)
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        count = text.count("addParam(")
+        include = text.find('#include "mpc_plugin.h"')
+        own = re.search(r"^[ \t]*#define[ \t]+MPC_MAX_PARAMS[ \t]+(\d+)", text, re.M)
+        capacity = int(own.group(1)) if own and (include < 0 or own.start() < include) else default
+        if count > capacity:
+            include_line = text.count("\n", 0, include) + 1 if include >= 0 else 1
+            return "\n".join([
+                "In file included from %s:%d:" % (path, include_line),
+                "%s:%d:1: error: static assertion failed due to requirement '%d <= %d': MPC-E117: the plugin "
+                "declares more parameters than MPC_MAX_PARAMS" % (header, assert_line, count, capacity),
+                "1 error generated."])
+    return None
+
+
 def write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -214,6 +257,17 @@ def main(argv=None):
     total = 2 + len(arm) + (3 if arm else 0)
     n = 1
     print("[%d/%d] Native build (for host_sim and testing on this computer)" % (n, total))
+    print("  [native] compiling %d source file%s -> %s" % (len(sources), "" if len(sources) == 1 else "s",
+                                                          os.path.relpath(native_lib, project)))
+    error = capacity_error(project, sources)
+    if error:
+        print(error)
+        print("")
+        print("ERROR: native build failed (compiler exit code 1). The compiler messages above say what is wrong.")
+        print("  Command: zig c++ -std=c++17 -O2 -fPIC -shared -I%s -I%s -o %s %s"
+              % (os.path.join(SDK_ROOT, "framework"), src_dir, native_lib,
+                 " ".join(os.path.join(src_dir, s) for s in sources)))
+        return 1
     write(native_lib, "native test build of %s\n" % manifest["name"])
     print("  [native] ok (%s)" % native_lib)
 
@@ -471,6 +525,7 @@ MD
     cat <<'PY'
 import json
 import os
+import re
 import sys
 
 USAGE = """host_sim - a tiny host that behaves like the Akai MPC's VST2 host
@@ -492,11 +547,23 @@ def main(argv):
         print("FAIL  could not load %s (no such file)" % plugin)
         print("\nResult: FAIL (the plugin could not be loaded)")
         return 1
+    # The stub reads the facts a real dump would report from the project the native build came from
+    # (<project>/build/native/<slug>.dylib).
+    project = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(plugin))))
+    with open(os.path.join(project, "plugin.json"), encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    param_names = []
+    src = os.path.join(project, "src")
+    for name in sorted(os.listdir(src)) if os.path.isdir(src) else []:
+        if name.endswith(".cpp"):
+            with open(os.path.join(src, name), encoding="utf-8") as fh:
+                param_names += re.findall(r'addParam\(\s*mpc::\w+\(\s*"[^"]*"\s*,\s*"([^"]*)"', fh.read())
     if cmd == "dump":
-        print(json.dumps({"name": "Grit", "vendor": "Example Audio", "uid": "ExGr", "isInstrument": False,
-                          "numInputs": 2, "numOutputs": 2, "numPrograms": 1, "programs": ["Init"],
-                          "params": [{"index": 0, "name": "Output"}, {"index": 1, "name": "Drive"},
-                                     {"index": 2, "name": "Mix"}]}, indent=1))
+        print(json.dumps({"name": manifest["name"], "vendor": manifest["manufacturer"], "uid": manifest["uid"],
+                          "isInstrument": manifest.get("kind") == "instrument",
+                          "numInputs": manifest.get("numInputs", 2), "numOutputs": manifest.get("numOutputs", 2),
+                          "numPrograms": 1, "programs": ["Init"],
+                          "params": [{"index": i, "name": n} for i, n in enumerate(param_names)]}, indent=1))
         return 0
     opts = argv[2:]
     wav = opts[opts.index("--wav") + 1] if "--wav" in opts and opts.index("--wav") + 1 < len(opts) else None
@@ -515,7 +582,9 @@ def main(argv):
     section("Load")
     ok("VSTPluginMain returned a valid AEffect (magic VstP)")
     ok("effOpen called twice, as the MPC does")
-    print("INFO  effect, 2 in / 2 out, 3 parameters, 1 program (Init)")
+    print("INFO  %s, %d in / %d out, %d parameters, 1 program (Init)"
+          % (manifest.get("kind", "effect"), manifest.get("numInputs", 2), manifest.get("numOutputs", 2),
+             len(param_names)))
     section("Prepare")
     ok("parameter 0 toggle quirk tolerated")
     section("Main render (2.00 s, block %s, 44100 Hz)" % block)
@@ -721,6 +790,175 @@ JSON
 # Grit
 
 A soft-clip saturator for Akai MPC hardware. Kept in its own repository; built with the MPC SDK's
+tools from outside the SDK.
+MD
+}
+
+# --- Variants for the SDK edge-case evals (mpc task 02) ---------------------------------------------
+# Each runs after stand_in_sdk and changes only what its case needs.
+
+# stand_in_sdk_first_build <sdk>
+#   A clone that has never been built: no tool cache (.sdk-tools/, so no host_sim and no zigenv), and
+#   the SDK's top folder made read-only, so the stub build tool fails creating .sdk-tools/ with the
+#   same uncaught PermissionError the real tools/build.py gives (from find_zig when no zig is found,
+#   or from ensure_host_sim after the native build when zig is on PATH).
+#   Only the top folder is read-only, so a run's leftover temp folder needs `chmod u+w mpc-sdk` before
+#   it can be deleted by hand.
+stand_in_sdk_first_build() {
+  local sdk="$1"
+  rm -rf "$sdk/.sdk-tools"
+  chmod a-w "$sdk"
+}
+
+# stand_in_sdk_changed <sdk> <version>
+#   The SDK's documents name <version> as the minimum MPC OS, where the real SDK at e78bad5 (and the
+#   skill's summary) say 3.10.1.
+stand_in_sdk_changed() {
+  local sdk="$1" version="$2" tmp
+  tmp="$(mktemp)"
+  sed "s/MPC OS 3\.10\.1/MPC OS $version/g" "$sdk/docs/install-and-test.md" > "$tmp"
+  cat "$tmp" > "$sdk/docs/install-and-test.md"
+  rm -f "$tmp"
+  cat > "$sdk/docs/supported-devices.md" <<MD
+# Supported MPCs and how they differ
+
+## Side by side
+
+| | 32-bit MPCs | 64-bit MPCs | MPC Sample |
+|---|---|---|---|
+| Instruments | Yes | Yes | No |
+| Effects | Yes, as inserts | Yes, as inserts | Yes, as Knob FX |
+| Library | \`file32\` (arm32) | \`file64\` (arm64) | \`file64\` (arm64) |
+| Minimum firmware | MPC OS $version | MPC OS $version | v1.4.0 |
+| Setting that enables plugins | Preferences → Enhancements (Beta) → External Plugin Support | Preferences → Enhancements (Beta) → External Plugin Support | MIDI Config → Dev Enhancements (Beta) → Custom Plug-In Support |
+
+Earlier firmware ignores the \`VST2 Plugins\` folder.
+MD
+}
+
+# stand_in_sdk_fix_trigger <sdk>
+#   A framework header with a parameter capacity (MPC-E117) that the stub build tool enforces, and a
+#   troubleshooting entry whose fix (the sentinel) goes in the plugin's own source.
+stand_in_sdk_fix_trigger() {
+  local sdk="$1"
+  cat > "$sdk/framework/mpc_plugin.h" <<'CPP'
+// MPC plugin framework (stand-in). The real header declares mpc::Plugin, mpc::PluginInfo,
+// mpc::ProcessContext and the parameter helpers.
+#pragma once
+
+#ifndef MPC_MAX_PARAMS
+#define MPC_MAX_PARAMS 32
+#endif
+
+namespace mpc {
+class Plugin;
+struct PluginInfo;
+struct ProcessContext;
+}  // namespace mpc
+
+static_assert(mpc::kDeclaredParams <= MPC_MAX_PARAMS, "MPC-E117: the plugin declares more parameters than MPC_MAX_PARAMS");
+CPP
+
+  cat >> "$sdk/docs/troubleshooting.md" <<'MD'
+
+## MPC-E117: more parameters than MPC_MAX_PARAMS
+
+The compiler reports a static assertion in `framework/mpc_plugin.h`. The framework keeps room for 32
+parameters unless the plugin asks for more. The fix belongs in the plugin, not the framework: put
+`#define MPC_MAX_PARAMS 64` in the plugin's own `.cpp`, on a line above `#include "mpc_plugin.h"`,
+and build again. Any value from the plugin's parameter count up to 128 works. Don't change the value
+in `framework/mpc_plugin.h`: every plugin built with this SDK shares it, and an SDK update puts it back.
+MD
+}
+
+# stand_in_step_gate_project <dir>
+#   An MPC effect kept outside the SDK with 36 parameters (an output trim, three globals and 32 step
+#   levels). It builds cleanly on a plain stand-in SDK, and fails with MPC-E117 after
+#   stand_in_sdk_fix_trigger.
+stand_in_step_gate_project() {
+  local project="$1" i
+  mkdir -p "$project/src"
+  cat > "$project/plugin.json" <<'JSON'
+{
+  "name": "Step Gate",
+  "manufacturer": "Example Audio",
+  "version": "1.0.0",
+  "format": "vst2",
+  "kind": "effect",
+  "uid": "ExSg",
+  "numInputs": 2,
+  "numOutputs": 2,
+  "shortName": "StepGate",
+  "knobs": [
+    { "parameter": 1, "label": "Rate" },
+    { "parameter": 2, "label": "Depth" },
+    { "parameter": 3, "label": "Smooth" }
+  ],
+  "shiftKnobs": [
+    { "parameter": 0, "label": "Output" }
+  ],
+  "file32": "VST/step-gate-arm32.so",
+  "file64": "VST/step-gate-arm64.so"
+}
+JSON
+
+  {
+    cat <<'CPP'
+// Step Gate: a 32-step tempo-synced volume gate for the MPC. Parameter 0 is the output trim, so the
+// host's nudge on load is harmless.
+#include <cmath>
+
+#include "mpc_plugin.h"
+
+class StepGate : public mpc::Plugin {
+public:
+    StepGate() : mpc::Plugin(makeInfo()) {
+        addParam(mpc::floatParam("output", "Output", -24, 6, 0, "dB", 1));
+        addParam(mpc::floatParam("rate", "Rate", 1, 32, 16, "steps/bar", 0));
+        addParam(mpc::floatParam("depth", "Depth", 0, 100, 100, "%", 0));
+        addParam(mpc::floatParam("smooth", "Smooth", 0, 20, 2, "ms", 1));
+CPP
+    for i in $(seq 1 32); do
+      printf '        addParam(mpc::floatParam("step%d", "Step %d", 0, 100, 100, "%%", 0));\n' "$i" "$i"
+    done
+    cat <<'CPP'
+    }
+
+    void process(mpc::ProcessContext& ctx) override {
+        const float out = std::pow(10.0f, get(0) / 20.0f);
+        const float depth = get(2) / 100.0f;
+        const float level = get(4 + step_) / 100.0f;
+        for (int ch = 0; ch < ctx.numOutputs && ch < ctx.numInputs; ++ch) {
+            for (int i = 0; i < ctx.numFrames; ++i) {
+                ctx.outputs[ch][i] = out * ctx.inputs[ch][i] * (1.0f - depth + depth * level);
+            }
+        }
+    }
+
+private:
+    int step_ = 0;  // the step clock is left out of this example
+
+    static mpc::PluginInfo makeInfo() {
+        mpc::PluginInfo info;
+        info.name = "Step Gate";
+        info.vendor = "Example Audio";                 // must match plugin.json "manufacturer"
+        info.uniqueId = MPC_FOURCC('E', 'x', 'S', 'g');  // must match plugin.json "uid"
+        info.version = 1000;
+        info.isInstrument = false;
+        info.numInputs = 2;
+        info.numOutputs = 2;
+        return info;
+    }
+};
+
+MPC_PLUGIN_ENTRY(StepGate)
+CPP
+  } > "$project/src/StepGate.cpp"
+
+  cat > "$project/README.md" <<'MD'
+# Step Gate
+
+A 32-step volume gate for Akai MPC hardware. Kept in its own repository; built with the MPC SDK's
 tools from outside the SDK.
 MD
 }

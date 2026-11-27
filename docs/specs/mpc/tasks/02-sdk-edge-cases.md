@@ -1,6 +1,6 @@
 # 02: SDK edge cases: none found, first build, a changed SDK, test failures and fixes
 
-Status: ready
+Status: done
 Spec: [mpc](../../mpc.md)
 Blocked by: 01
 

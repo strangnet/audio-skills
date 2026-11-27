@@ -21,7 +21,7 @@ python3 "<sdk>/tools/build.py" "<project>" [--target all|arm32|arm64|native|desk
 - `<slug>` is the plugin's `name` from `plugin.json`, lower-cased, with every character other than `a-z` and `0-9` replaced by `-`.
 - The compiler gets `-I <sdk>/framework` and `-I <project>/src`, so the project includes the framework headers (`mpc_plugin.h` and the rest) without copying them. It compiles only `<project>/src/*.cpp`.
 - zig, under the default `--toolchain zig`, is looked up in this order: `--zig`, `$ZIG`, `zig` on `PATH`, then a private environment in `<sdk>/.sdk-tools/zigenv`. `--zig` and `$ZIG` accept a zig executable or a Python interpreter that has the `ziglang` package.
-- The build compiles the host simulator into `<sdk>/.sdk-tools/host_sim` when it is missing or older than its sources.
+- The build compiles the host simulator into `<sdk>/.sdk-tools/host_sim` when it is missing or older than its source (`tools/host-sim/host_sim.cpp`) or the framework's VST2 interface header (`framework/mpc_vst2_abi.h`). These are the builds that write into the SDK: see [sdk-edge-cases.md](sdk-edge-cases.md).
 - Exit codes: 0 success, 1 compile failure, validation errors or missing project, 2 bad arguments.
 - Its closing "Next:" hint prints the packaging command with an SDK-relative path (`tools/package.py`); make it absolute before running it.
 
