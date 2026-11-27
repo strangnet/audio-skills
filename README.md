@@ -81,7 +81,7 @@ Each prints `file:line: severity: rule: message` and exits 0 (no errors), 1 (err
 JUCE_DIR=<JUCE 9.0.6> MPC_SDK=<Akai SDK clone> python3 examples/tilt-eq/check.py
 ```
 
-It runs both checkers, the core's behaviour test, the JUCE build with pluginval, clap-validator and auval, and the MPC build for arm32 and arm64 with the SDK's validation and `host_sim`. A missing tool skips only the checks that need it. Nothing is installed, apart from copying the AU into `~/Library/Audio/Plug-Ins/Components` so auval can see it. The example doesn't ship inside any skill.
+It runs the real-time, core-purity and WebView binding checkers, the core's behaviour test, the JUCE build with pluginval, clap-validator and auval, and the MPC build for arm32 and arm64 with the SDK's validation and `host_sim`. A missing tool skips only the checks that need it. Nothing is installed, apart from copying the AU into `~/Library/Audio/Plug-Ins/Components` so auval can see it. The example doesn't ship inside any skill.
 
 ## Development
 

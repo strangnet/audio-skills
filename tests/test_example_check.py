@@ -196,6 +196,36 @@ def test_check_that_crashes_counts_as_failed_with_its_error_shown(ex):
     assert "PASS  auval" in report.lines
 
 
+# --- WebView bindings (juce task 04) -------------------------------------------
+
+
+def test_check_list_runs_the_binding_checker_on_the_juce_editor_and_ui(ex):
+    # Given the example's check list
+
+    # When the WebView binding check is looked up by name
+    checks = {check.name: check for check in ex.CHECKS}
+
+    # Then it is there, needs no tool or build, and points the binding checker
+    # at the JUCE wrapper's editor sources and UI folder
+    assert "WebView bindings" in checks
+    binding = checks["WebView bindings"]
+    assert binding.tools == [] and binding.depends_on == []
+    assert ex.BINDING_CHECKER.is_file()
+    assert ex.BINDING_FOLDERS == [ex.HERE / "juce" / "Source", ex.HERE / "juce" / "ui"]
+
+
+def test_binding_check_passes_on_the_example_and_the_summary_lists_it(ex):
+    # Given only the example's WebView binding check
+    checks = [check for check in ex.CHECKS if check.name == "WebView bindings"]
+
+    # When the checks run
+    report = ex.run_checks(checks, find_tool=all_tools_present)
+
+    # Then it passes and the summary lists it as a passed check
+    assert report.lines == ["PASS  WebView bindings"]
+    assert report.outcome == "pass"
+
+
 # --- MPC wrapper (task 05) ---------------------------------------------------
 
 

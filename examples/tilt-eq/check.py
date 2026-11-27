@@ -35,6 +35,9 @@ REPO = HERE.parent.parent
 BUILD = REPO / "build" / "tilt-eq"
 PURITY_CHECKER = REPO / "skills" / "audio-portable-core" / "scripts" / "check_core_purity.py"
 REALTIME_CHECKER = REPO / "skills" / "audio-dsp" / "scripts" / "check_realtime.py"
+BINDING_CHECKER = REPO / "skills" / "audio-juce-webview" / "scripts" / "check_webview_bindings.py"
+# The JUCE wrapper's editor sources and the UI it serves.
+BINDING_FOLDERS = [HERE / "juce" / "Source", HERE / "juce" / "ui"]
 
 
 @dataclass
@@ -118,6 +121,15 @@ def realtime_safety() -> tuple[bool, str]:
     folders = [HERE / name for name in ("core", "juce", "mpc") if (HERE / name).is_dir()]
     run = subprocess.run(
         [sys.executable, str(REALTIME_CHECKER), *map(str, folders)],
+        capture_output=True, text=True,
+    )
+    return run.returncode == 0, (run.stdout + run.stderr).strip()
+
+
+def webview_bindings() -> tuple[bool, str]:
+    """The JUCE editor's relays and the UI's state requests name each other."""
+    run = subprocess.run(
+        [sys.executable, str(BINDING_CHECKER), *map(str, BINDING_FOLDERS)],
         capture_output=True, text=True,
     )
     return run.returncode == 0, (run.stdout + run.stderr).strip()
@@ -395,6 +407,7 @@ CHECKS = [
     Check("core purity", run=core_purity),
     Check("one copy of the core, included by both wrappers", run=one_core_copy),
     Check("real-time safety", run=realtime_safety),
+    Check("WebView bindings", run=webview_bindings),
     Check("core behaviour test", run=core_behaviour_test, tools=[CXX]),
     Check("JUCE build (VST3, AU, CLAP)", run=juce_build, tools=[CMAKE, NINJA, JUCE]),
     Check("pluginval VST3", run=pluginval(ARTEFACTS / "VST3" / f"{PRODUCT}.vst3"),

@@ -1,6 +1,6 @@
 # 04: The example check script runs the binding checker
 
-Status: ready
+Status: done
 Spec: [juce](../../juce.md)
 Blocked by: 01
 
