@@ -58,9 +58,10 @@ Every skill works when installed on its own: each carries its own references and
 |---|---|
 | `audio-dsp` | Real-time rules for the audio callback and the code it calls, denormals, smoothing, aliasing and oversampling, latency, block sizes, the MPC's CPU budget, a DSP architecture checklist, and a real-time checker script. |
 | `audio-parameters` | Parameter, state and preset design: stable ids, ranges and skew, automation, the MPC host's parameter rules and Knob FX mapping, and versioned state with migrations. |
+| `audio-juce` | JUCE 9 plugins with CMake on macOS: finding JUCE, plugin codes, module headers, CLAP through clap-juce-extensions, bus layouts for effects and instruments, the parameter tree, threads, the editor's lifecycle, programs, and host-facing pitfalls such as stale bundles. |
 | `audio-portable-core` | One DSP core behind both a JUCE plugin and an MPC plugin: header-only standard-library C++17, relative includes, no host types, parameters defined once, and a core-purity checker script. |
 
-Inside an Akai MPC SDK checkout, Akai's own `mpc-plugin-*` skills cover MPC-only work, and these skills step aside. Skills for JUCE itself (`audio-juce`) and the MPC SDK (`audio-mpc`) are planned.
+Inside an Akai MPC SDK checkout, Akai's own `mpc-plugin-*` skills cover MPC-only work, and these skills step aside. A skill for the MPC SDK (`audio-mpc`) is planned.
 
 ### Checkers
 

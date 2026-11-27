@@ -1,6 +1,6 @@
 # 06: audio-juce holds the JUCE 9 plugin know-how
 
-Status: ready
+Status: done
 Spec: [juce](../../juce.md)
 Blocked by: 01
 

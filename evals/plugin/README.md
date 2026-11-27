@@ -27,6 +27,15 @@ claude plugin eval . --scaffold --allow-tools Bash Write Edit --no-publish
 | `audio-portable-core-share-dsp` | Sharing a JUCE compressor's DSP with a new MPC plugin fires `audio-portable-core`. One grader per advice item: header-only standard-library core, relative includes (and why the SDK build needs them), no host types in the core, the real-time marker, parameter ids and order defined once, and running the core-purity checker. Edits nothing. |
 | `audio-portable-core-desktop-only` | Organising a desktop-only JUCE reverb doesn't fire `audio-portable-core`. |
 | `audio-portable-core-mpc-only-sdk` | Inside a stand-in SDK checkout (the SDK's top-level layout, an empty `tools/`, one plugin project), an MPC-only plugin question doesn't fire `audio-portable-core`. |
+| `audio-juce-setup-plugin` | Setting up a JUCE 9 wrapper (VST3, AU, CLAP) for a saturation core fires `audio-juce`. One grader per advice item: JUCE found through a cache or environment variable, fixed plugin and manufacturer codes (random code if left out, AU upper-case rules), module headers rather than `JuceHeader.h`, CLAP through a pinned clap-juce-extensions, an input bus for an effect, `ParameterID` with a version hint built from the core's table, cached raw-value atomics, an editor that never calls the audio callback, an editor recreated on close, at least one program with a no-op `setCurrentProgram`, and installed bundles and cached scans. No workflow, and no repeat of `audio-parameters` or `audio-dsp`. Edits nothing. |
+| `audio-juce-no-input` | A delay effect built on the default `AudioProcessor()` constructor gets no input: fires `audio-juce`, names the disabled-by-default buses and the `BusesProperties` fix. Edits nothing. |
+| `audio-juce-appears-twice` | A renamed compressor with no `PLUGIN_CODE` shows up twice: fires `audio-juce`, names the random plugin code and the old installed bundles and cached scans. Edits nothing. |
+| `audio-juce-instrument` | Turning an effect project into a synth fires `audio-juce` and covers `IS_SYNTH`, `NEEDS_MIDI_INPUT` and `acceptsMidi`, output-only buses, CLAP instrument features, and the listed-as-effect pitfall that `VST3_CATEGORIES` alone doesn't fix. |
+| `audio-juce-webview-handoff` | Wiring a new knob in a JUCE WebView editor fires `audio-juce-webview`, which gives the relay, attachment and state-request details. |
+| `audio-juce-component-editor` | A Component-based editor question fires `audio-juce`, which says Component editors aren't covered, points to JUCE's documentation, and gives no Component-specific advice. |
+| `audio-juce-mpc-only-sdk` | Inside a stand-in SDK checkout, an MPC-only plugin question doesn't fire `audio-juce`. |
+| `audio-juce-not-iplug2` | An iPlug2 plugin question doesn't fire `audio-juce`. |
+| `audio-juce-not-nih-plug` | A nih-plug plugin question doesn't fire `audio-juce`. |
 | `audio-skills-not-for-claude-code-plugin` | Building a Claude Code plugin fires no `audio-*` skill. |
 | `audio-skills-not-for-cowork-plugin` | Building a Cowork plugin fires no `audio-*` skill. |
 
