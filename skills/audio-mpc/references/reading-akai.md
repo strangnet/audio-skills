@@ -24,6 +24,12 @@ Checked against the SDK at commit `e78bad5`. The table follows the "Where to rea
 | Problems on the MPC or with the tools | `<sdk>/docs/troubleshooting.md` | `mpc-plugin-troubleshoot` |
 | Licences, JUCE, community | `<sdk>/docs/faq-and-legal.md` | |
 | What changed since a version | `<sdk>/docs/changelog.md` | |
+| The hard rules (identity, names, MIDI, Knob FX, parameter 0, CPU, nothing proprietary, installs) | `<sdk>/AGENTS.md`, "Hard rules" | |
+| What a finished plugin is, and what to tell the user when handing it over | `<sdk>/AGENTS.md`, "What a finished plugin is"; `<sdk>/docs/plugin-folder-format.md` | |
+| Device setup per model: minimum firmware, the setting that enables plugins | `<sdk>/docs/supported-devices.md`, `<sdk>/docs/knob-fx.md` | |
+| The plugin info in code (`PluginInfo`, `MPC_FOURCC`) | `<sdk>/framework/mpc_plugin.h` | `mpc-plugin-dsp` |
+| What the validation checks | `<sdk>/tools/validate.py` (its usage text) | `mpc-plugin-build` |
+| Files the plugin reads at run time (`Content/`) | `<sdk>/docs/plugin-folder-format.md`, `<sdk>/framework/mpc_resources.h` | |
 
 A skill's path is `<sdk>/.agents/skills/<skill>/SKILL.md` (or the same under `.claude/skills/`). `mpc-plugin-new` and `<sdk>/docs/workflow.md` describe Akai's whole process from idea to install: read them only for the facts they point to.
 
