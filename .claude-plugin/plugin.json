@@ -1,6 +1,6 @@
 {
   "name": "strangnet-audio-skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Audio-plugin know-how for AI coding agents: real-time DSP, parameters, JUCE (VST3/AU/CLAP) and MPC.",
   "author": {
     "name": "Patrick Strang"
