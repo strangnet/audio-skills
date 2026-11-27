@@ -1,6 +1,6 @@
 # 03: The checker checks how the page loads JUCE's library
 
-Status: ready
+Status: done
 Spec: [juce](../../juce.md)
 Blocked by: 01
 

@@ -12,6 +12,22 @@ SCRIPT = REPO / "skills" / "audio-juce-webview" / "scripts" / "check_webview_bin
 EXAMPLE_JUCE = REPO / "examples" / "tilt-eq" / "juce"
 
 
+JUCE_LIBRARY = (
+    "window.__JUCE__.initialisationData = { __juce__sliders: [] };\n"
+    "function getSliderState(name) { return name; }\n"
+    "function getToggleState(name) { return name; }\n"
+    "function getComboBoxState(name) { return name; }\n"
+    "export { getSliderState, getToggleState, getComboBoxState };\n"
+)
+JUCE_8_NATIVE_INTEROP = (
+    'if (typeof window.__JUCE__.initialisationData === "undefined") {\n'
+    "    window.__JUCE__.initialisationData = { __juce__sliders: [] };\n"
+    "}\n"
+)
+
+GAIN_EDITOR = "struct Editor {\n    juce::WebSliderRelay gainRelay{\"gain\"};\n};\n"
+
+
 def write(path, text=""):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
@@ -165,6 +181,105 @@ def test_computed_state_names_in_the_page_are_one_warning(tmp_path):
         f"{page}:3: warning: relay-name: getSliderState names are computed in the page,"
         " so WebSliderRelay names can't be matched"
     ]
+
+def test_library_loaded_without_type_module_is_a_module_error(tmp_path):
+    # Given a copy of JUCE's library in the UI folder, loaded by a plain script element
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    write(tmp_path / "ui" / "juce" / "index.js", JUCE_LIBRARY)
+    page = tmp_path / "ui" / "index.html"
+    write(
+        page,
+        "<html><body>\n<script src=\"juce/index.js\"></script>\n"
+        "<script type=\"module\">getSliderState(\"gain\");</script>\n</body></html>\n",
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then the script element is reported, and the check fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f'{page}:2: error: module: JUCE\'s interop library "juce/index.js" '
+        'is loaded without type="module"'
+    ]
+
+
+def test_name_the_library_does_not_export_imported_is_a_module_error(tmp_path):
+    # Given a page that imports a misspelt name next to a state function from the library
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    page = tmp_path / "ui" / "main.js"
+    write(
+        page,
+        "import {\n    getSliderState,\n    getSlidrState as slidr,\n} from \"./juce/index.js\";\n"
+        'getSliderState("gain");\n',
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then the misspelt name is reported where it is imported, and the check fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f'{page}:3: error: module: "getSlidrState" is not exported by JUCE\'s interop library'
+    ]
+
+
+def test_name_the_library_does_not_export_called_through_its_namespace_is_a_module_error(tmp_path):
+    # Given a page that calls a misspelt name through the library's namespace import
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    page = tmp_path / "ui" / "main.js"
+    write(
+        page,
+        'import * as Juce from "./juce/index.js";\n'
+        'Juce.getSliderState("gain");\nJuce.getSlider("mix");\n',
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then the misspelt call is reported, and the check fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f'{page}:3: error: module: "getSlider" is not exported by JUCE\'s interop library'
+    ]
+
+
+def test_state_function_called_through_window_juce_is_a_module_error(tmp_path):
+    # Given a page that reads a slider state through window.__JUCE__
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    page = tmp_path / "ui" / "main.js"
+    write(page, 'const gain = window.__JUCE__.getSliderState("gain");\n')
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then the call is reported, and the check fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f"{page}:1: error: module: getSliderState is called through window.__JUCE__; "
+        "import it from JUCE's interop library"
+    ]
+
+
+def test_other_uses_of_window_juce_are_not_reported(tmp_path):
+    # Given a page that imports its state from the library and also uses
+    # window.__JUCE__ for backend events and to test for the native side
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    write(
+        tmp_path / "ui" / "main.js",
+        'import { getSliderState } from "./juce/index.js";\n'
+        'getSliderState("gain");\n'
+        "if (window.__JUCE__) {\n"
+        '    window.__JUCE__.backend.addEventListener("meter", (level) => draw(level));\n'
+        "}\n",
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then nothing is reported and the check passes
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
 
 
 # Many
@@ -401,6 +516,64 @@ def test_typescript_and_jsx_pages_are_read(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == ""
 
+def test_every_name_the_library_exports_can_be_imported_and_called(tmp_path):
+    # Given a page that imports all six names JUCE 9.0.6's library exports, and
+    # calls each through a namespace import
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    exports = ("getNativeFunction, getSliderState, getToggleState, getComboBoxState, "
+               "getBackendResourceAddress, ControlParameterIndexUpdater")
+    write(
+        tmp_path / "ui" / "main.js",
+        f'import {{ {exports} }} from "./juce/index.js";\n'
+        'import * as Juce from "./juce/index.js";\n'
+        'getSliderState("gain");\n'
+        'Juce.getNativeFunction("reset"); Juce.getBackendResourceAddress("data.json");\n'
+        'new Juce.ControlParameterIndexUpdater("data-parameter-index");\n',
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then nothing is reported and the check passes
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_every_way_of_naming_the_library_is_recognised(tmp_path):
+    # Given the library named three ways, each used wrongly: a misspelt import from the
+    # npm package; a plain script loading a file recognised as the library by its
+    # content; and a plain script loading the path the page imports its states from
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    write(tmp_path / "ui" / "vendor" / "juce-interop.js", JUCE_LIBRARY)
+    write(
+        tmp_path / "ui" / "app.js",
+        'import { getSlidrState } from "@juce-framework/webview";\n',
+    )
+    write(
+        tmp_path / "ui" / "index.html",
+        "<html><body>\n<script src=\"vendor/juce-interop.js\"></script>\n"
+        "<script src='./js/juce/index.js'></script>\n</body></html>\n",
+    )
+    write(
+        tmp_path / "ui" / "main.js",
+        'import { getSliderState } from "./js/juce/index.js";\ngetSliderState("gain");\n',
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then each wrong use is reported, and the check fails
+    ui = tmp_path / "ui"
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f'{ui / "app.js"}:1: error: module: "getSlidrState" is not exported by '
+        "JUCE's interop library",
+        f'{ui / "index.html"}:2: error: module: JUCE\'s interop library '
+        '"vendor/juce-interop.js" is loaded without type="module"',
+        f'{ui / "index.html"}:3: error: module: JUCE\'s interop library '
+        '"./js/juce/index.js" is loaded without type="module"',
+    ]
+
 
 # Boundaries
 
@@ -510,6 +683,110 @@ def test_state_function_definitions_are_not_computed_requests(tmp_path):
     result = run_check(tmp_path / "Source", tmp_path / "ui")
 
     # Then the definitions aren't requests, and the check passes
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+def test_copies_of_the_library_in_the_ui_folder_are_not_scanned_as_page_code(tmp_path):
+    # Given copies of JUCE 9's library and JUCE 8's native-interop file in the UI folder,
+    # each holding code that would be reported if it were page code, and a page that
+    # loads the library correctly
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    ui = tmp_path / "ui"
+    write(ui / "js" / "juce" / "index.js", JUCE_LIBRARY + 'getSliderState("internal");\n')
+    write(
+        ui / "js" / "juce" / "check_native_interop.js",
+        JUCE_8_NATIVE_INTEROP + 'window.__JUCE__.getToggleState("internal");\n',
+    )
+    write(
+        ui / "index.html",
+        "<html><body>\n<script type=\"module\">\n"
+        '  import * as Juce from "./js/juce/index.js";\n'
+        '  Juce.getSliderState("gain");\n'
+        "</script>\n</body></html>\n",
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", ui)
+
+    # Then only the page is checked, and the check passes
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_type_module_is_found_in_any_attribute_spelling(tmp_path):
+    # Given scripts that load the library as a module, with the type attribute quoted
+    # either way or not at all, in any case, and before or after src
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    write(tmp_path / "ui" / "juce" / "index.js", JUCE_LIBRARY)
+    write(
+        tmp_path / "ui" / "index.html",
+        "<html><body>\n"
+        '<script type="module" src="juce/index.js"></script>\n'
+        "<script src='juce/index.js' type='module'></script>\n"
+        "<SCRIPT SRC=juce/index.js TYPE=Module></SCRIPT>\n"
+        '<script type="module">getSliderState("gain");</script>\n'
+        "</body></html>\n",
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then nothing is reported and the check passes
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_library_loads_and_imports_only_in_comments_or_strings_are_not_counted(tmp_path):
+    # Given a page whose real script lacks type="module" and only mentions it inside
+    # another attribute, and wrong loads and imports that appear only in an HTML
+    # comment, a JavaScript comment and a JavaScript string
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    write(tmp_path / "ui" / "juce" / "index.js", JUCE_LIBRARY)
+    page = tmp_path / "ui" / "index.html"
+    write(
+        page,
+        "<html><body>\n"
+        "<!-- <script src=\"juce/index.js\"></script> -->\n"
+        "<script src=\"juce/index.js\" data-note='type=\"module\"'></script>\n"
+        "</body></html>\n",
+    )
+    write(
+        tmp_path / "ui" / "main.js",
+        'import { getSliderState } from "./juce/index.js";\n'
+        'getSliderState("gain");\n'
+        '// import { getSlidrState } from "./juce/index.js";\n'
+        "const help = 'import { getSlidrState } from \"./juce/index.js\"';\n",
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then only the real script element is reported, and the check fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f'{page}:3: error: module: JUCE\'s interop library "juce/index.js" '
+        'is loaded without type="module"'
+    ]
+
+
+def test_other_scripts_and_modules_are_not_held_to_the_library_rules(tmp_path):
+    # Given a page with a plain script that isn't the library, and a module whose
+    # namespace import of another file calls names the library doesn't export
+    write(tmp_path / "Source" / "PluginEditor.h", GAIN_EDITOR)
+    write(tmp_path / "ui" / "juce" / "index.js", JUCE_LIBRARY)
+    write(tmp_path / "ui" / "index.html", '<html><body>\n<script src="theme.js"></script>\n'
+          "</body></html>\n")
+    write(
+        tmp_path / "ui" / "main.js",
+        'import { getSliderState } from "./juce/index.js";\n'
+        'import * as Utils from "./utils.js";\n'
+        'Utils.format(getSliderState("gain"));\n',
+    )
+
+    # When the binding check runs
+    result = run_check(tmp_path / "Source", tmp_path / "ui")
+
+    # Then nothing is reported and the check passes
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == ""
 
