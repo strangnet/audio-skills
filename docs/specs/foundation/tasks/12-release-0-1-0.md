@@ -28,4 +28,4 @@ Blocked by: 04, 05, 09, 10, 11
 - Codex: not checked; Codex isn't installed on the release machine.
 - Copilot CLI: not checked; Copilot isn't installed on the release machine.
 - M2 and M4 manual run: not yet done.
-- MPC hardware: the manual MPC check from task 05 was skipped and hasn't been run on hardware.
+- MPC hardware: the manual MPC check from task 05 was skipped and hasn't been run on hardware. Deferred by the user (2026-11-27) to a later stage, once they have access to the hardware; it doesn't block closing this task.

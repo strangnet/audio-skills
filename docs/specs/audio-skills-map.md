@@ -14,6 +14,12 @@ Source: shape session, 2026-11-26
 | packaging | Skill `audio-packaging`: Developer ID signing, notarization, stapling, `.pkg` | validation |
 | windows | Windows sections across every skill (paths, caches, toolchain, installer, WebView2) | packaging |
 
+Candidate, not yet placed in the build order:
+
+| Id | Responsibility | Depends on |
+|---|---|---|
+| dsp-recipes | Skill `audio-dsp-recipes`: one reference per DSP technique (filters, dynamics, delay and reverb, saturation, oscillators and envelopes, granular), building on `audio-dsp`'s rules. Neither the Plugin Freedom System nor the map covers techniques; decide after the M2/M4 run shows whether agents get them wrong | foundation |
+
 Build order: foundation → juce → mpc → validation → troubleshooting → packaging → windows
 
 ## Accepted trade-offs that apply to more than one capability
