@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Check that a portable DSP core is pure: header-only C++17 using only the standard library.
 
-Comments and string literals are stripped before matching. Allowed includes are the
-C++17 standard library headers (with the C compatibility headers in their <cname>
-form) and quoted includes that resolve to a file inside the core folder. Reported as
-errors: any other include, any juce:: or mpc:: name, any JUCE_ macro (whatever the
-includes), and any .cpp file in the core.
+Comments and string literals are stripped before matching. Headers are .h and .hpp;
+sources are .cpp, .cc and .cxx. Allowed includes are the C++17 standard library
+headers (with the C compatibility headers in their <cname> form) and quoted includes
+that resolve to a file inside the core folder. A deprecated C header such as
+<math.h> is a warning naming its replacement. Reported as errors: any other include,
+any juce:: or mpc:: name, any JUCE_ macro (whatever the includes), and any source
+file in the core, even when the core has no headers.
 
     check_core_purity.py <core folder>...
 
-Prints `file:line: severity: rule: message` per finding. Exit 0 = no errors,
-1 = errors, 2 = usage error (no path, a missing path, or no headers found).
+Prints `file:line: severity: rule: message` per finding. Exit 0 = no errors
+(warnings allowed), 1 = errors, 2 = usage error (no path, a missing path, or no
+headers or source files found).
 """
 
 from __future__ import annotations
@@ -103,46 +106,73 @@ def line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
-def include_problem(kind: str, name: str, header: Path, core: Path) -> str | None:
+# Deprecated C headers in C++17 ([depr.c.headers]) and what to write instead. The
+# <cname> forms of complex.h, tgmath.h, stdbool.h, stdalign.h and iso646.h are
+# themselves deprecated or empty in C++, so those name the real replacement.
+DEPRECATED_C_HEADERS = {
+    **{f"{name}.h": f"use <c{name}>" for name in (
+        "assert", "ctype", "errno", "fenv", "float", "inttypes", "limits", "locale", "math",
+        "setjmp", "signal", "stdarg", "stddef", "stdint", "stdio", "stdlib", "string", "time",
+        "uchar", "wchar", "wctype")},
+    "complex.h": "use <complex>",
+    "tgmath.h": "use <cmath> and <complex>",
+    "stdbool.h": "remove it: bool, true and false are built into C++",
+    "stdalign.h": "remove it: alignas and alignof are built into C++",
+    "iso646.h": "remove it: and, or and not are built into C++",
+}
+
+
+def include_problem(kind: str, name: str, header: Path, core: Path) -> tuple[str, str, str] | None:
+    """(severity, rule, message) for an include the core must not have, or None."""
     if kind == "<":
-        return None if name in STANDARD_HEADERS else f"<{name}> is not a C++17 standard header"
+        if name in STANDARD_HEADERS:
+            return None
+        if name in DEPRECATED_C_HEADERS:
+            return ("warning", "deprecated-header",
+                    f"<{name}> is deprecated in C++; {DEPRECATED_C_HEADERS[name]}")
+        return "error", "include", f"<{name}> is not a C++17 standard header"
     resolved = (header.parent / name).resolve()
     if resolved.is_file() and resolved.is_relative_to(core):
         return None
-    return f'"{name}" does not resolve to a header inside the core folder'
+    return "error", "include", f'"{name}" does not resolve to a header inside the core folder'
 
 
-def findings_in(header: Path, core: Path) -> list[tuple[int, str, str]]:
+def findings_in(header: Path, core: Path) -> list[tuple[int, str, str, str]]:
+    """(line, severity, rule, message) for each problem in one header."""
     no_comments, bare = strip(header.read_text())
     found = []
     for match in INCLUDE.finditer(no_comments):
         problem = include_problem(*match.groups(), header, core)
         if problem:
-            found.append((line_of(no_comments, match.start(2)), "include", problem))
+            found.append((line_of(no_comments, match.start(2)), *problem))
     for pattern, rule, what in NAMES:
         for match in pattern.finditer(bare):
-            found.append((line_of(bare, match.start()), rule, f"{what} in the core: {match.group()}"))
+            found.append((line_of(bare, match.start()), "error", rule, f"{what} in the core: {match.group()}"))
     return sorted(found)
 
 
-def files_in(path: Path, suffix: str) -> list[Path]:
-    """`path` itself if it is a file with `suffix`, or every such file under the folder."""
+HEADER_SUFFIXES = {".h", ".hpp"}
+SOURCE_SUFFIXES = {".cpp", ".cc", ".cxx"}
+
+
+def files_in(path: Path, suffixes: set[str]) -> list[Path]:
+    """`path` itself if its suffix is one of `suffixes`, or every such file under the folder."""
     if path.is_file():
-        return [path] if path.suffix == suffix else []
-    return sorted(path.glob(f"**/*{suffix}"))
+        return [path] if path.suffix in suffixes else []
+    return sorted(p for p in path.rglob("*") if p.suffix in suffixes and p.is_file())
 
 
-def findings_under(path: Path) -> Iterator[tuple[Path, int, str, str]]:
-    """Yield (file, line, rule, message) for every problem in the core at `path`.
+def findings_under(path: Path) -> Iterator[tuple[Path, int, str, str, str]]:
+    """Yield (file, line, severity, rule, message) for every problem in the core at `path`.
 
     The core folder is `path` itself, or the folder holding it when `path` is a file.
     """
     core = (path.parent if path.is_file() else path).resolve()
-    for header in files_in(path, ".h"):
-        for lineno, rule, message in findings_in(header, core):
-            yield header, lineno, rule, message
-    for source in files_in(path, ".cpp"):
-        yield source, 1, "header-only", "the core must be header-only; move this code into a header"
+    for header in files_in(path, HEADER_SUFFIXES):
+        for lineno, severity, rule, message in findings_in(header, core):
+            yield header, lineno, severity, rule, message
+    for source in files_in(path, SOURCE_SUFFIXES):
+        yield source, 1, "error", "header-only", "the core must be header-only; move this code into a header"
 
 
 def main(argv: list[str]) -> int:
@@ -155,13 +185,14 @@ def main(argv: list[str]) -> int:
     missing = [str(path) for path in args.paths if not path.exists()]
     if missing:
         parser.error(f"no such path: {', '.join(missing)}")
-    if not any(files_in(path, ".h") for path in args.paths):
-        parser.error("no headers (.h) found")
+    if not any(files_in(path, HEADER_SUFFIXES | SOURCE_SUFFIXES) for path in args.paths):
+        parser.error("no headers (.h, .hpp) or source files (.cpp, .cc, .cxx) found")
     status = 0
     for path in args.paths:
-        for file, lineno, rule, message in findings_under(path):
-            print(f"{file}:{lineno}: error: {rule}: {message}")
-            status = 1
+        for file, lineno, severity, rule, message in findings_under(path):
+            print(f"{file}:{lineno}: {severity}: {rule}: {message}")
+            if severity == "error":
+                status = 1
     return status
 
 

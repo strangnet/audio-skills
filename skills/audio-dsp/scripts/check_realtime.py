@@ -7,7 +7,8 @@ Finds each real-time body and scans it by matching braces:
 - any function with the real-time marker, a `// realtime` comment alone on the
   line before it (use it on the core's entry points)
 
-Inside those bodies it reports allocation (including container growth), locks,
+Inside those bodies it reports allocation (including container growth and local
+standard containers), locks,
 file or network I/O, and logging or console output as errors, and a
 `processBlock` with no denormal protection as a warning. Comments and string
 literals are stripped before matching. It doesn't follow calls.
@@ -17,7 +18,8 @@ line. The reason is required: a tag without one is itself an error.
 
     check_realtime.py [--verbose] <file-or-folder>...
 
-Folders are searched for .h, .hpp, .cpp and .cc files. Each finding is printed
+Folders are searched for .h, .hpp, .cpp, .cc and .cxx files; a folder with none
+is a usage error. Each finding is printed
 as `file:line: severity: rule: message`; `--verbose` also lists suppressed
 findings as `file:line: suppressed: rule: message (reason: ...)`. Exit codes:
 0 no errors (warnings allowed), 1 errors, 2 usage error.
@@ -30,7 +32,7 @@ import re
 import sys
 from pathlib import Path
 
-SOURCE_SUFFIXES = {".h", ".hpp", ".cpp", ".cc"}
+SOURCE_SUFFIXES = {".h", ".hpp", ".cpp", ".cc", ".cxx"}
 
 CALLBACK_NAME = re.compile(r"\b(processBlock|process)\s*\(")
 FUNCTION_NAME = re.compile(r"\b(\w+)\s*\(")
@@ -52,6 +54,12 @@ RULES = [
      "heap allocation can block"),
     ("allocation", re.compile(r"\b(push_back|emplace_back|resize|reserve|insert)\s*\("),
      "growing a container can allocate"),
+    # A local variable of a standard container type: `std::vector<float> v(n);`,
+    # `std::string s;`. A reference or pointer (`&` or `*` after the type) isn't one.
+    ("allocation", re.compile(
+        r"\bstd\s*::\s*(vector|string|deque|list|map|set|unordered_map|unordered_set)\b"
+        r"(?:\s*<[^;{}()]*>)?\s+[A-Za-z_]\w*\s*[;({=]"),
+     "a local standard container allocates when it is filled or sized"),
     ("lock", re.compile(
         r"\b((?:recursive_|shared_|timed_|recursive_timed_|shared_timed_)?mutex"
         r"|lock_guard|unique_lock|scoped_lock|shared_lock)\b"),
@@ -60,7 +68,7 @@ RULES = [
         r"\b(fopen|fread|fwrite|fclose|[io]?fstream|File|FileInputStream|FileOutputStream"
         r"|URL|socket|StreamingSocket|DatagramSocket)\b"),
      "file or network I/O can block"),
-    ("logging", re.compile(r"\b(cout|cerr|printf|fprintf|DBG|Logger)\b"),
+    ("logging", re.compile(r"\b(cout|cerr|printf|fprintf|DBG|Logger|mpc\s*::\s*log)\b"),
      "logging or console output can block"),
 ]
 
@@ -215,9 +223,12 @@ def main(argv: list[str]) -> int:
     for path in args.paths:
         if not path.exists():
             parser.error(f"no such file or folder: {path}")
+    files = [f for p in args.paths for f in source_files(p)]
+    if not files:
+        parser.error("no source files (.h, .hpp, .cpp, .cc, .cxx) found")
 
     status = 0
-    for path in [f for p in args.paths for f in source_files(p)]:
+    for path in files:
         status = max(status, check(path, args.verbose))
     return status
 

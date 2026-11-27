@@ -29,9 +29,10 @@ python3 scripts/check_core_purity.py <core folder>...
 Run it with this skill's folder as the base. It strips comments and string literals, then reports, as `file:line: severity: rule: message`:
 - `include`: any include that isn't a standard C++17 header or a file inside the core
 - `juce-name`, `juce-macro` and `mpc-name`: any `juce::` name, `JUCE_` macro or `mpc::` name, even with no matching include
-- `header-only`: any `.cpp` file in the core
+- `header-only`: any source file (`.cpp`, `.cc`, `.cxx`) in the core
+- `deprecated-header`, as a warning: a C header such as `<math.h>`, naming its replacement (`<cmath>`)
 
-Exit 0 means no errors, 1 means errors, and 2 is a usage error. A pure core can still break real-time rules: the standard library includes `<mutex>`, `<fstream>` and `<iostream>`. Run the real-time checker as well.
+Headers are `.h` and `.hpp`. Exit 0 means no errors (warnings are allowed), 1 means errors, and 2 is a usage error. A pure core can still break real-time rules: the standard library includes `<mutex>`, `<fstream>` and `<iostream>`. Run the real-time checker as well.
 
 ## Pitfalls
 

@@ -40,7 +40,7 @@ This applies to the callback and to everything it calls, including the DSP core.
   The marker is a `// realtime` comment alone on its line. Template or return-type lines may sit between it and the function name; a `;`, `{` or `}` in between cancels it. Put it on every core function the wrapper's callback calls.
 
 **What it reports:**
-- errors for the rules `allocation`, `lock`, `io` and `logging`
+- errors for the rules `allocation`, `lock`, `io` and `logging`. Allocation includes a local standard container (`std::vector<float> tmp(numFrames);`, `std::string s;`); a reference or pointer to one is fine. Logging includes the MPC SDK's `mpc::log`.
 - a warning, rule `denormal`, when a `processBlock` contains none of `ScopedNoDenormals`, `disableDenormalisedNumberSupport`, `_MM_SET_FLUSH_ZERO_MODE` or `_MM_SET_DENORMALS_ZERO_MODE`. Warnings alone exit 0.
 
 **Opting out of a finding.** A trailing comment on the flagged line suppresses that line's findings:
@@ -53,9 +53,9 @@ The reason after the colon is required; a bare `// realtime-ok` is itself an err
 
 **What it can't see:**
 - **It doesn't follow calls.** A clean callback that calls an allocating helper passes. Mark the helpers, or keep real-time code in marked functions.
-- Allocation hidden behind an innocent-looking line: constructing a container with a size (`std::vector<float> tmp(numFrames);`), copying a `std::vector` or `std::string` by value, `juce::String` concatenation, `std::function` construction, a `std::map` lookup with `operator[]` that inserts, exceptions.
+- Allocation hidden behind an innocent-looking line: a temporary container passed straight to a call (`use(std::vector<float>(n))`), a container type it doesn't know (`juce::Array`, `juce::String`), `juce::String` concatenation, `std::function` construction, a `std::map` lookup with `operator[]` that inserts, exceptions.
 - Unbounded loops, waiting on atomics, and system calls not in its word list.
-- Loggers outside its word list. It knows `cout`, `cerr`, `printf`, `fprintf`, `DBG` and `Logger`, but not the MPC SDK's `mpc::log` or a project's own logging macros.
+- Loggers outside its word list. It knows `cout`, `cerr`, `printf`, `fprintf`, `DBG`, `Logger` and `mpc::log`, but not a project's own logging macros.
 - Code reached through virtual calls or function pointers.
 
 A passing checker is the minimum. Review real-time code by hand as well, and measure with the platform's tools (pluginval at high strictness on desktop, `host_sim` timing for the MPC).

@@ -418,3 +418,113 @@ def test_opt_out_marker_with_no_reason_is_reported_as_an_error(tmp_path, tag):
     # Then the marker itself is reported as an error, and the checker fails
     assert result.returncode == 1, result.stdout + result.stderr
     assert f"{source}:4: error: opt-out: " in result.stdout
+
+
+# --- Amended checker interface (task 13) --------------------------------------
+
+
+def test_cxx_source_is_scanned(tmp_path):
+    # Given a folder whose only source is a .cxx file with an allocating processBlock
+    source = write(
+        tmp_path / "src" / "PluginProcessor.cxx",
+        "void P::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)\n"
+        "{\n"
+        "    juce::ScopedNoDenormals noDenormals;\n"
+        "    auto* scratch = new float[64];\n"
+        "}\n",
+    )
+
+    # When the real-time checker runs on the folder
+    result = run_check(tmp_path / "src")
+
+    # Then the .cxx file is read and its allocation reported
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f"{source}:4: error: allocation: " in result.stdout
+
+
+def test_mpc_log_in_a_realtime_body_is_a_logging_error(tmp_path):
+    # Given an MPC process() that logs with the SDK's own logger
+    source = write(
+        tmp_path / "Saturator.cpp",
+        "void Saturator::process (mpc::ProcessContext& ctx)\n"
+        "{\n"
+        '    mpc::log ("process %d frames", ctx.numFrames);\n'
+        "}\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then the call is reported as logging, and the checker fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f"{source}:3: error: logging: " in result.stdout
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        "std::vector<float> gains (numFrames);",
+        "std::vector<float> scratch;",
+        'std::string label = "block";',
+        "std::map<int, float> levels;",
+        "std::unordered_set<int> seen {};",
+    ],
+    ids=["sized vector", "empty vector", "string", "map", "braced set"],
+)
+def test_local_standard_container_in_a_realtime_body_is_an_allocation_error(tmp_path, declaration):
+    # Given a marked core function that declares a local standard container
+    source = write(
+        tmp_path / "core.h",
+        "struct Core {\n"
+        "    // realtime\n"
+        "    void process (float* const* channels, int numChannels, int numFrames) {\n"
+        f"        {declaration}\n"
+        "    }\n"
+        "};\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then the declaration is reported as an allocation, and the checker fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f"{source}:4: error: allocation: " in result.stdout
+
+
+def test_reference_or_pointer_to_a_container_is_not_reported(tmp_path):
+    # Given a marked core function that only refers to containers allocated elsewhere
+    source = write(
+        tmp_path / "core.h",
+        "struct Core {\n"
+        "    // realtime\n"
+        "    void process (float* const* channels, int numChannels, int numFrames) {\n"
+        "        std::vector<float>& scratch = scratch_;\n"
+        "        const std::vector<float>* table = &table_;\n"
+        "        std::array<float, 64> small {};\n"
+        "    }\n"
+        "};\n",
+    )
+
+    # When the real-time checker runs on it
+    result = run_check(source)
+
+    # Then nothing is reported: references, pointers and std::array don't allocate
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("files", [[], ["notes.txt"]], ids=["empty folder", "no sources"])
+def test_folder_with_no_source_files_is_a_usage_error(tmp_path, files):
+    # Given a folder with no .h, .hpp, .cpp, .cc or .cxx files
+    folder = tmp_path / "src"
+    folder.mkdir()
+    for name in files:
+        write(folder / name, "new float[64];\n")
+
+    # When the real-time checker runs on it
+    result = run_check(folder)
+
+    # Then it prints usage and exits with the usage-error code
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "usage:" in result.stderr
+    assert result.stdout == ""

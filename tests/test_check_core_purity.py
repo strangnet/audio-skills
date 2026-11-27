@@ -226,3 +226,68 @@ def test_missing_path_or_no_headers_prints_usage_and_exits_with_usage_error(tmp_
     assert result.returncode == 2, result.stdout + result.stderr
     assert "usage:" in result.stderr
     assert result.stdout == ""
+
+
+# --- Amended checker interface (task 13) --------------------------------------
+
+
+def test_hpp_header_is_checked_like_an_h_header(tmp_path):
+    # Given a core whose only header is a .hpp that includes JUCE
+    core = tmp_path / "core"
+    write(core / "tilt.hpp", "#pragma once\n#include <juce_core/juce_core.h>\n")
+
+    # When the core-purity check runs
+    result = run_check(core)
+
+    # Then the include is reported, so .hpp headers are read too
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f"{core / 'tilt.hpp'}:2: error: include: <juce_core/juce_core.h> is not a C++17 standard header"
+    ]
+
+
+def test_cc_and_cxx_files_in_core_are_reported_as_not_header_only(tmp_path):
+    # Given a core with a clean header plus a .cc and a .cxx source
+    core = tmp_path / "core"
+    write(core / "tilt.h", "#pragma once\nfloat gain(float db);\n")
+    write(core / "gain.cc", "float gain(float db) { return db; }\n")
+    write(core / "smooth.cxx", "float smooth(float x) { return x; }\n")
+
+    # When the core-purity check runs
+    result = run_check(core)
+
+    # Then both sources are reported as breaking header-only, and the check fails
+    assert result.returncode == 1, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    assert len(lines) == 2, result.stdout
+    assert lines[0].startswith(f"{core / 'gain.cc'}:1: error: header-only: ")
+    assert lines[1].startswith(f"{core / 'smooth.cxx'}:1: error: header-only: ")
+
+
+def test_core_with_only_source_files_reports_header_only_errors_not_a_usage_error(tmp_path):
+    # Given a core folder that holds only a source file, no headers
+    core = tmp_path / "core"
+    write(core / "tilt.cpp", "float gain(float db) { return db; }\n")
+
+    # When the core-purity check runs
+    result = run_check(core)
+
+    # Then the source is reported as a header-only error: a failure, not a usage error
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout.splitlines()[0].startswith(f"{core / 'tilt.cpp'}:1: error: header-only: ")
+
+
+@pytest.mark.parametrize(("header", "replacement"), [("math.h", "cmath"), ("stdint.h", "cstdint")])
+def test_deprecated_c_header_warns_naming_the_replacement_and_succeeds(tmp_path, header, replacement):
+    # Given a core header that includes a deprecated C header
+    core = tmp_path / "core"
+    write(core / "tilt.h", f"#pragma once\n#include <{header}>\n")
+
+    # When the core-purity check runs
+    result = run_check(core)
+
+    # Then it warns, naming the <cname> replacement, and warnings alone succeed
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        f"{core / 'tilt.h'}:2: warning: deprecated-header: <{header}> is deprecated in C++; use <{replacement}>"
+    ]

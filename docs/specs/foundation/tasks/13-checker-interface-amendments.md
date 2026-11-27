@@ -1,6 +1,6 @@
 # 13: Both checkers follow the amended checker interface
 
-Status: ready
+Status: done
 Spec: [foundation](../../foundation.md)
 Blocked by: 06, 07
 
