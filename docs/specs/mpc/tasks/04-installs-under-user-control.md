@@ -1,6 +1,6 @@
 # 04: Installs stay under the user's control
 
-Status: ready
+Status: done
 Spec: [mpc](../../mpc.md)
 Blocked by: 01
 

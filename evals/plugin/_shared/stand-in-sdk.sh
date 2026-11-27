@@ -23,7 +23,8 @@
 #     it, so an agent that read the skill reports the test as not passed. The same skill opens with
 #     a workflow step ("first scaffold a new project with the SDK's scaffolding tool") that an agent
 #     following audio-mpc leaves out.
-#   - (Install asked, task 04): the stand-in mpc-plugin-deploy skill's "MPC-SAFE-COPY" check.
+#   - audio-mpc-install-asked: the stand-in mpc-plugin-deploy skill's "MPC-SAFE-COPY" check (look for an
+#     older copy with the same uid before copying). It appears only to an agent that read that skill.
 #   - audio-mpc-sdk-changed: stand_in_sdk_changed makes the SDK's documents name another minimum
 #     MPC OS version than the skill's summary (3.10.1).
 #   - audio-mpc-fix: stand_in_sdk_fix_trigger adds the "MPC-E117" assertion to the framework header,
@@ -961,4 +962,15 @@ CPP
 A 32-step volume gate for Akai MPC hardware. Kept in its own repository; built with the MPC SDK's
 tools from outside the SDK.
 MD
+}
+
+# --- Finished build output (install cases, task 04) ---------------------------------------------
+# stand_in_built_project <sdk> <project>
+#   Runs the stand-in SDK's stub build tool on the project, as the user's earlier build would have,
+#   so the project holds finished build output: build/native/<slug>.dylib, build/params.json and the
+#   "<Manufacturer> - VST - <Name>" folder with both ARM libraries, plugin.json, version.xml and skins.
+#   Call it after stand_in_sdk and stand_in_effect_project.
+stand_in_built_project() {
+  local sdk="$1" project="$2"
+  python3 "$sdk/tools/build.py" "$project" > /dev/null
 }
